@@ -1,0 +1,242 @@
+[
+  {
+    "name": "Woodchips",
+    "values": {
+      "Noticeability": "1",
+      "Colour": "0",
+      "Feel": "2",
+      "Normal Use": "2",
+      "Misuse": "1",
+      "Risk Type": "",
+      "Normal Use 2": "2",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Concrete",
+    "values": {
+      "Noticeability": "0",
+      "Colour": "1",
+      "Feel": "0",
+      "Normal Use": "2",
+      "Misuse": "0",
+      "Risk Type": "2",
+      "Normal Use 2": "2",
+      "Vandalize": "2",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Plywood",
+    "values": {
+      "Noticeability": "2",
+      "Colour": "1",
+      "Feel": "1",
+      "Normal Use": "2",
+      "Misuse": "1",
+      "Risk Type": "0",
+      "Normal Use 2": "1",
+      "Vandalize": "1",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Polyurethane Foam",
+    "values": {
+      "Noticeability": "2",
+      "Colour": "2",
+      "Feel": "0",
+      "Normal Use": "2",
+      "Misuse": "2",
+      "Risk Type": "",
+      "Normal Use 2": "1",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Polycarbonate",
+    "values": {
+      "Noticeability": "2",
+      "Colour": "2",
+      "Feel": "0",
+      "Normal Use": "2",
+      "Misuse": "1",
+      "Risk Type": "1",
+      "Normal Use 2": "1",
+      "Vandalize": "1",
+      "Damage Type": "0",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Aluminum",
+    "values": {
+      "Noticeability": "2",
+      "Colour": "0",
+      "Feel": "0",
+      "Normal Use": "2",
+      "Misuse": "1",
+      "Risk Type": "1",
+      "Normal Use 2": "2",
+      "Vandalize": "1",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Stainless Steel",
+    "values": {
+      "Noticeability": "2",
+      "Colour": "0",
+      "Feel": "0",
+      "Normal Use": "1",
+      "Misuse": "0",
+      "Risk Type": "0,2",
+      "Normal Use 2": "2",
+      "Vandalize": "1",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Tempered Glass",
+    "values": {
+      "Noticeability": "1",
+      "Colour": "0",
+      "Feel": "0",
+      "Normal Use": "1",
+      "Misuse": "1",
+      "Risk Type": "2",
+      "Normal Use 2": "2",
+      "Vandalize": "2",
+      "Damage Type": "0",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Natural Stone",
+    "values": {
+      "Noticeability": "2",
+      "Colour": "0",
+      "Feel": "2",
+      "Normal Use": "1",
+      "Misuse": "0",
+      "Risk Type": "2",
+      "Normal Use 2": "2",
+      "Vandalize": "2",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Wood Planks",
+    "values": {
+      "Noticeability": "1",
+      "Colour": "1",
+      "Feel": "1",
+      "Normal Use": "1",
+      "Misuse": "1",
+      "Risk Type": "1",
+      "Normal Use 2": "",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Tree Trunks",
+    "values": {
+      "Noticeability": "0",
+      "Colour": "0",
+      "Feel": "2",
+      "Normal Use": "1",
+      "Misuse": "1",
+      "Risk Type": "2",
+      "Normal Use 2": "1",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Feather",
+    "values": {
+      "Noticeability": "2",
+      "Colour": "2",
+      "Feel": "2",
+      "Normal Use": "2",
+      "Misuse": "1",
+      "Risk Type": "1",
+      "Normal Use 2": "0",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Polyester Fabric",
+    "values": {
+      "Noticeability": "2",
+      "Colour": "2",
+      "Feel": "0",
+      "Normal Use": "2",
+      "Misuse": "2",
+      "Risk Type": "",
+      "Normal Use 2": "1",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Cotton Fabric",
+    "values": {
+      "Noticeability": "1",
+      "Colour": "1",
+      "Feel": "1",
+      "Normal Use": "2",
+      "Misuse": "2",
+      "Risk Type": "",
+      "Normal Use 2": "1",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Paint",
+    "values": {
+      "Noticeability": "2",
+      "Colour": "2",
+      "Feel": "0",
+      "Normal Use": "2",
+      "Misuse": "2",
+      "Risk Type": "",
+      "Normal Use 2": "",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Rubber",
+    "values": {
+      "Noticeability": "0",
+      "Colour": "0",
+      "Feel": "0",
+      "Normal Use": "0",
+      "Misuse": "0",
+      "Risk Type": "",
+      "Normal Use 2": "",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  }
+]
