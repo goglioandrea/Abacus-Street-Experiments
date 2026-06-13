@@ -1,0 +1,1077 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Abacus of Street Experiment Features</title>
+    <style>
+        body {
+            font-family: Helvetica, Arial, sans-serif;
+            margin: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .canvas-container {
+            position: relative;
+            margin-top: 20px;
+        }
+        canvas {
+            background: white;
+            display: block;
+        }
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.7);
+            display: none;
+            pointer-events: none;
+            z-index: 1;
+        }
+        .add-button {
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            border: none;
+            background: transparent;
+            color: #605a5a;
+            font-size: 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transform: translate(-50%, -50%);
+            padding: 0;
+            outline: none;
+            font-weight: bold;
+            transition: all 0.2s ease;
+            z-index: 2;
+        }
+        .add-button:hover {
+            background-color: #605a5a;
+            color: white;
+            border-radius: 50%;
+        }
+        .text-input-container {
+            position: absolute;
+            display: none;
+            transform: translate(0, -50%);
+            z-index: 2;
+        }
+        .text-input-container input {
+            border: none;
+            border-bottom: 1px solid #1d1d1b;
+            background: transparent;
+            font-family: Helvetica, Arial, sans-serif;
+            font-size: 12px;
+            padding: 4px;
+            outline: none;
+            width: 120px;
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1 style="white-space: nowrap;">Abacus of Street Experiment Features</h1>
+    <div class="canvas-container" style="width: 1800px; height: 1800px;">
+        <canvas id="gridCanvas" width="1800" height="1800"></canvas>
+        <div id="overlay"></div>
+
+        <!-- Add buttons for each sector -->
+        <button class="add-button" id="addSector1" style="display: none;">+</button>
+        <div class="text-input-container" id="inputSector1">
+            <input type="text" id="inputSector1Text" placeholder="New material" />
+        </div>
+
+        <button class="add-button" id="addSector2" style="display: none;">+</button>
+        <div class="text-input-container" id="inputSector2">
+            <input type="text" id="inputSector2Text" placeholder="New semi-processed" />
+        </div>
+
+        <button class="add-button" id="addSector3" style="display: none;">+</button>
+        <div class="text-input-container" id="inputSector3">
+            <input type="text" id="inputSector3Text" placeholder="New furniture" />
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gridCanvas');
+        const ctx = canvas.getContext('2d');
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const overlay = document.getElementById('overlay');
+
+        // Fixed parameters (scaled for higher resolution)
+        const innerRadius = 400;
+        const circleSpacing = 24;
+        const innerCircleSpacing = 30; // Reduced spacing between the first three inner circles
+        const innerCircle3Spacing = 76 * 1.5; // Increased spacing between the third and fourth inner circles
+        const concentricCircles = 10;
+        const textPadding = 6;
+        const dotRadius = 8;
+        const buttonMargin = 20;
+        const lineWidth = 0.8; // 80% of the original line thickness
+
+        // Characteristics list
+        const characteristics = [
+            "Noticeability", "Colour", "Feel", "Normal Use", "Misuse",
+            "Risk Type", "Normal Use 2", "Vandalize", "Damage Type", "Tactility"
+        ];
+
+        // Letter mapping for special characteristics
+        const letterMapping = {
+            "Feel": { "0": "I", "1": "T", "2": "N" },
+            "Risk Type": { "0": "T", "1": "C", "2": "H" },
+            "Damage Type": { "0": "S", "1": "F", "2": "C" }
+        };
+
+        // Materials/Objects Lists
+        let materials = [
+            { name: "Woodchips", values: { "Noticeability": "1", "Colour": "0", "Feel": "2", "Normal Use": "2", "Misuse": "1", "Risk Type": "", "Normal Use 2": "2", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Concrete", values: { "Noticeability": "0", "Colour": "1", "Feel": "0", "Normal Use": "2", "Misuse": "0", "Risk Type": "2", "Normal Use 2": "2", "Vandalize": "2", "Damage Type": "", "Tactility": "" } },
+            { name: "Plywood", values: { "Noticeability": "2", "Colour": "1", "Feel": "1", "Normal Use": "2", "Misuse": "1", "Risk Type": "0", "Normal Use 2": "1", "Vandalize": "1", "Damage Type": "", "Tactility": "" } },
+            { name: "Polyurethane Foam", values: { "Noticeability": "2", "Colour": "2", "Feel": "0", "Normal Use": "2", "Misuse": "2", "Risk Type": "", "Normal Use 2": "1", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Polycarbonate", values: { "Noticeability": "2", "Colour": "2", "Feel": "0", "Normal Use": "2", "Misuse": "1", "Risk Type": "1", "Normal Use 2": "1", "Vandalize": "1", "Damage Type": "0", "Tactility": "" } },
+            { name: "Aluminum", values: { "Noticeability": "2", "Colour": "0", "Feel": "0", "Normal Use": "2", "Misuse": "1", "Risk Type": "1", "Normal Use 2": "2", "Vandalize": "1", "Damage Type": "", "Tactility": "" } },
+            { name: "Stainless Steel", values: { "Noticeability": "2", "Colour": "0", "Feel": "0", "Normal Use": "1", "Misuse": "0", "Risk Type": "0,2", "Normal Use 2": "2", "Vandalize": "1", "Damage Type": "", "Tactility": "" } },
+            { name: "Tempered Glass", values: { "Noticeability": "1", "Colour": "0", "Feel": "0", "Normal Use": "1", "Misuse": "1", "Risk Type": "2", "Normal Use 2": "2", "Vandalize": "2", "Damage Type": "0", "Tactility": "" } },
+            { name: "Natural Stone", values: { "Noticeability": "2", "Colour": "0", "Feel": "2", "Normal Use": "1", "Misuse": "0", "Risk Type": "2", "Normal Use 2": "2", "Vandalize": "2", "Damage Type": "", "Tactility": "" } },
+            { name: "Wood Planks", values: { "Noticeability": "1", "Colour": "1", "Feel": "1", "Normal Use": "1", "Misuse": "1", "Risk Type": "1", "Normal Use 2": "", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Tree Trunks", values: { "Noticeability": "0", "Colour": "0", "Feel": "2", "Normal Use": "1", "Misuse": "1", "Risk Type": "2", "Normal Use 2": "1", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Feather", values: { "Noticeability": "2", "Colour": "2", "Feel": "2", "Normal Use": "2", "Misuse": "1", "Risk Type": "1", "Normal Use 2": "0", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Polyester Fabric", values: { "Noticeability": "2", "Colour": "2", "Feel": "0", "Normal Use": "2", "Misuse": "2", "Risk Type": "", "Normal Use 2": "1", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Cotton Fabric", values: { "Noticeability": "1", "Colour": "1", "Feel": "1", "Normal Use": "2", "Misuse": "2", "Risk Type": "", "Normal Use 2": "1", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Paint", values: { "Noticeability": "2", "Colour": "2", "Feel": "0", "Normal Use": "2", "Misuse": "2", "Risk Type": "", "Normal Use 2": "", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Rubber", values: { "Noticeability": "0", "Colour": "0", "Feel": "0", "Normal Use": "0", "Misuse": "0", "Risk Type": "", "Normal Use 2": "", "Vandalize": "", "Damage Type": "", "Tactility": "" } }
+        ];
+
+        let semiProcessed = [
+            { name: "Metal Chain", values: { "Noticeability": "1", "Colour": "2", "Feel": "0", "Normal Use": "2", "Misuse": "0", "Risk Type": "", "Normal Use 2": "", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Pallet", values: { "Noticeability": "1", "Colour": "2", "Feel": "0", "Normal Use": "2", "Misuse": "0", "Risk Type": "", "Normal Use 2": "", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "PVC Tubes", values: { "Noticeability": "1", "Colour": "2", "Feel": "0", "Normal Use": "2", "Misuse": "0", "Risk Type": "", "Normal Use 2": "", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Nylon Rope", values: { "Noticeability": "1", "Colour": "0", "Feel": "1", "Normal Use": "2", "Misuse": "0", "Risk Type": "", "Normal Use 2": "", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Nylon Net", values: { "Noticeability": "1", "Colour": "0", "Feel": "1", "Normal Use": "2", "Misuse": "1", "Risk Type": "", "Normal Use 2": "", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Hemp Rope", values: { "Noticeability": "1", "Colour": "0", "Feel": "0", "Normal Use": "2", "Misuse": "0", "Risk Type": "", "Normal Use 2": "", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Metal Net", values: { "Noticeability": "0", "Colour": "2", "Feel": "0", "Normal Use": "1", "Misuse": "1", "Risk Type": "", "Normal Use 2": "", "Vandalize": "", "Damage Type": "", "Tactility": "" } }
+        ];
+
+        let furniture = [
+            { name: "Bench", values: { "Noticeability": "", "Colour": "", "Feel": "", "Normal Use": "", "Misuse": "", "Risk Type": "", "Normal Use 2": "", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Bollard", values: { "Noticeability": "", "Colour": "", "Feel": "", "Normal Use": "", "Misuse": "", "Risk Type": "", "Normal Use 2": "", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Street Lamp", values: { "Noticeability": "", "Colour": "", "Feel": "", "Normal Use": "", "Misuse": "", "Risk Type": "", "Normal Use 2": "", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Plant Case", values: { "Noticeability": "", "Colour": "", "Feel": "", "Normal Use": "", "Misuse": "", "Risk Type": "", "Normal Use 2": "", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Plant Pot", values: { "Noticeability": "", "Colour": "", "Feel": "", "Normal Use": "", "Misuse": "", "Risk Type": "", "Normal Use 2": "", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Sign", values: { "Noticeability": "", "Colour": "", "Feel": "", "Normal Use": "", "Misuse": "", "Risk Type": "", "Normal Use 2": "", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Bike Rack", values: { "Noticeability": "", "Colour": "", "Feel": "", "Normal Use": "", "Misuse": "", "Risk Type": "", "Normal Use 2": "", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Street Cones", values: { "Noticeability": "", "Colour": "", "Feel": "", "Normal Use": "", "Misuse": "", "Risk Type": "", "Normal Use 2": "", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Metal Fence", values: { "Noticeability": "", "Colour": "", "Feel": "", "Normal Use": "", "Misuse": "", "Risk Type": "", "Normal Use 2": "", "Vandalize": "", "Damage Type": "", "Tactility": "" } },
+            { name: "Wood Fence", values: { "Noticeability": "", "Colour": "", "Feel": "", "Normal Use": "", "Misuse": "", "Risk Type": "", "Normal Use 2": "", "Vandalize": "", "Damage Type": "", "Tactility": "" } }
+        ];
+
+        // Track hovered material and characteristic
+        let hoveredMaterial = null;
+        let hoveredCharacteristic = null;
+        let hoveredElement = null;
+
+        // Store text element positions for hit detection
+        const textElements = [];
+
+        // Track which sector's input is active
+        let activeSector = null;
+
+        // Color mapping for values
+        function getColorForValue(characteristic, value) {
+            if ((characteristic === "Noticeability" || characteristic === "Colour") && value === "0") {
+                return "#d1d1d1";
+            }
+            if (value === "0") return "#c45757";
+            if (value === "1") return "#ddc687";
+            if (value === "2") return "#8ac689";
+            return null;
+        }
+
+        // Draw a single dot with custom styling
+        function drawSingleDot(x, y, characteristic, value) {
+            if (characteristic === "Feel" || characteristic === "Risk Type" || characteristic === "Damage Type") {
+                const letter = letterMapping[characteristic][value];
+                if (letter) {
+                    ctx.fillStyle = "#ffffff";
+                    ctx.beginPath();
+                    ctx.arc(x, y, dotRadius, 0, 2 * Math.PI);
+                    ctx.fill();
+
+                    ctx.strokeStyle = "#605a5a";
+                    ctx.lineWidth = lineWidth;
+                    ctx.beginPath();
+                    ctx.arc(x, y, dotRadius, 0, 2 * Math.PI);
+                    ctx.stroke();
+
+                    ctx.fillStyle = "#605a5a";
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.font = 'bold 10px Helvetica, Arial, sans-serif';
+                    ctx.fillText(letter, x, y);
+                }
+            } else {
+                const color = getColorForValue(characteristic, value);
+                if (color) {
+                    ctx.fillStyle = color;
+                    ctx.beginPath();
+                    ctx.arc(x, y, dotRadius, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
+            }
+        }
+
+        // Draw one or two dots (for comma-separated values like "0,2")
+        function drawCustomDot(angle, radius, characteristic, value) {
+            if (value.includes(',')) {
+                const values = value.split(',').map(v => v.trim());
+                const alpha = Math.asin(dotRadius / radius);
+                for (let k = 0; k < values.length; k++) {
+                    const v = values[k];
+                    const offsetAngle = angle + (k === 0 ? -alpha : alpha);
+                    const x = centerX + radius * Math.cos(offsetAngle);
+                    const y = centerY + radius * Math.sin(offsetAngle);
+                    drawSingleDot(x, y, characteristic, v);
+                }
+            } else {
+                const x = centerX + radius * Math.cos(angle);
+                const y = centerY + radius * Math.sin(angle);
+                drawSingleDot(x, y, characteristic, value);
+            }
+        }
+
+        // Function to check if a point is inside a text element
+        function isPointInTextElement(x, y, element) {
+            const angle = element.angle + Math.PI;
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+
+            const localX = (x - element.x) * cos + (y - element.y) * sin;
+            const localY = -(x - element.x) * sin + (y - element.y) * cos;
+
+            return localX >= 0 && localX <= element.width && localY >= -6 && localY <= 6;
+        }
+
+        // Function to position UI elements
+        function positionUIElements() {
+            const sector1Lines = materials.length;
+            const sector2Lines = semiProcessed.length;
+            const sector3Lines = furniture.length;
+
+            const totalLines = sector1Lines + sector2Lines + sector3Lines;
+            const totalAngle = (5 * Math.PI) / 3;
+            const angleStep = totalAngle / (totalLines - 1);
+
+            const sector1StartAngle = -Math.PI / 2 + 0.01;
+            const sector1EndAngle = sector1StartAngle + (sector1Lines - 1) * angleStep;
+            const sector2StartAngle = sector1StartAngle + sector1Lines * angleStep;
+            const sector2EndAngle = sector2StartAngle + (sector2Lines - 1) * angleStep;
+            const sector3StartAngle = sector1StartAngle + (sector1Lines + sector2Lines) * angleStep;
+            const sector3EndAngle = sector3StartAngle + (sector3Lines - 1) * angleStep;
+
+            // Adjusted inner circle radii with 20% smaller innermost circle
+            const outermostInnerRadius = innerRadius - circleSpacing;
+            const innerCircle1Radius = outermostInnerRadius - innerCircle3Spacing;
+            const innerCircle2Radius = innerCircle1Radius - innerCircleSpacing;
+            const veryInnerRadius = innerCircle2Radius - innerCircleSpacing;
+
+            // Sector 1: Position near the last element (Rubber)
+            const sector1ButtonRadius = veryInnerRadius - buttonMargin;
+            const sector1ButtonAngle = sector1EndAngle;
+            const sector1ButtonX = centerX + sector1ButtonRadius * Math.cos(sector1ButtonAngle);
+            const sector1ButtonY = centerY + sector1ButtonRadius * Math.sin(sector1ButtonAngle);
+            document.getElementById('addSector1').style.left = `${sector1ButtonX}px`;
+            document.getElementById('addSector1').style.top = `${sector1ButtonY}px`;
+            document.getElementById('addSector1').style.display = 'block';
+
+            document.getElementById('inputSector1').style.left = `${sector1ButtonX + 15}px`;
+            document.getElementById('inputSector1').style.top = `${sector1ButtonY}px`;
+
+            // Sector 2: Position near the last element (Metal Net)
+            const sector2ButtonRadius = innerCircle2Radius - buttonMargin;
+            const sector2ButtonAngle = sector2EndAngle;
+            const sector2ButtonX = centerX + sector2ButtonRadius * Math.cos(sector2ButtonAngle);
+            const sector2ButtonY = centerY + sector2ButtonRadius * Math.sin(sector2ButtonAngle);
+            document.getElementById('addSector2').style.left = `${sector2ButtonX}px`;
+            document.getElementById('addSector2').style.top = `${sector2ButtonY}px`;
+            document.getElementById('addSector2').style.display = 'block';
+
+            document.getElementById('inputSector2').style.left = `${sector2ButtonX + 15}px`;
+            document.getElementById('inputSector2').style.top = `${sector2ButtonY}px`;
+
+            // Sector 3: Position near the last element (Wood Fence)
+            const sector3ButtonRadius = innerCircle1Radius - buttonMargin;
+            const sector3ButtonAngle = sector3EndAngle;
+            const sector3ButtonX = centerX + sector3ButtonRadius * Math.cos(sector3ButtonAngle);
+            const sector3ButtonY = centerY + sector3ButtonRadius * Math.sin(sector3ButtonAngle);
+            document.getElementById('addSector3').style.left = `${sector3ButtonX}px`;
+            document.getElementById('addSector3').style.top = `${sector3ButtonY}px`;
+            document.getElementById('addSector3').style.display = 'block';
+
+            document.getElementById('inputSector3').style.left = `${sector3ButtonX + 15}px`;
+            document.getElementById('inputSector3').style.top = `${sector3ButtonY}px`;
+        }
+
+        // Function to add new item to a list
+        function addNewItem(sector, name) {
+            if (!name.trim()) return;
+
+            const newItem = { name: name.trim(), values: {} };
+            characteristics.forEach(char => {
+                newItem.values[char] = "";
+            });
+
+            if (sector === 1) {
+                materials.push(newItem);
+            } else if (sector === 2) {
+                semiProcessed.push(newItem);
+            } else if (sector === 3) {
+                furniture.push(newItem);
+            }
+
+            document.getElementById(`inputSector${sector}`).style.display = 'none';
+            overlay.style.display = 'none';
+            activeSector = null;
+            drawGrid();
+            positionUIElements();
+        }
+
+        // Function to close all inputs
+        function closeAllInputs() {
+            for (let i = 1; i <= 3; i++) {
+                document.getElementById(`inputSector${i}`).style.display = 'none';
+            }
+            overlay.style.display = 'none';
+            activeSector = null;
+        }
+
+        // Function to draw the base grid (without hover effects)
+        function drawBaseGrid() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const sector1Lines = materials.length;
+            const sector2Lines = semiProcessed.length;
+            const sector3Lines = furniture.length;
+
+            const totalLines = sector1Lines + sector2Lines + sector3Lines;
+            const totalAngle = (5 * Math.PI) / 3;
+            const angleStep = totalAngle / (totalLines - 1);
+
+            const sector1StartAngle = -Math.PI / 2 + 0.01;
+            const sector1EndAngle = sector1StartAngle + (sector1Lines - 1) * angleStep;
+            const sector2StartAngle = sector1StartAngle + sector1Lines * angleStep;
+            const sector2EndAngle = sector2StartAngle + (sector2Lines - 1) * angleStep;
+            const sector3StartAngle = sector1StartAngle + (sector1Lines + sector2Lines) * angleStep;
+            const sector3EndAngle = sector3StartAngle + (sector3Lines - 1) * angleStep;
+
+            const outerRadius = innerRadius + (concentricCircles - 1) * circleSpacing;
+            const lineEndX = centerX - outerRadius;
+            const radialExtension = circleSpacing / 2;
+            const extendedRadius = outerRadius + radialExtension;
+
+            const outermostInnerRadius = innerRadius - circleSpacing;
+            const innerCircle1Radius = outermostInnerRadius - innerCircle3Spacing;
+            const innerCircle2Radius = innerCircle1Radius - innerCircleSpacing;
+            const veryInnerRadius = innerCircle2Radius - innerCircleSpacing;
+
+            // Clear text elements array
+            textElements.length = 0;
+
+            // Set default styles
+            ctx.fillStyle = '#1d1d1b';
+            ctx.strokeStyle = '#1d1d1b';
+            ctx.lineWidth = lineWidth;
+            ctx.font = '12px Helvetica, Arial, sans-serif';
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+
+            // Draw colored areas
+            function drawAnnularSector(cx, cy, r1, r2, startAngle, endAngle, fillColor) {
+                ctx.fillStyle = fillColor;
+                ctx.beginPath();
+                ctx.arc(cx, cy, r1, startAngle, endAngle);
+                ctx.arc(cx, cy, r2, endAngle, startAngle, true);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            drawAnnularSector(centerX, centerY, veryInnerRadius, innerCircle1Radius, sector1StartAngle, sector1EndAngle, '#f4f4f4');
+            drawAnnularSector(centerX, centerY, innerCircle1Radius, outermostInnerRadius, sector1StartAngle, sector1EndAngle, '#f4f4f4');
+            drawAnnularSector(centerX, centerY, innerCircle2Radius, outermostInnerRadius, sector2StartAngle, sector2EndAngle, '#ffffee');
+            drawAnnularSector(centerX, centerY, innerCircle1Radius, outermostInnerRadius, sector3StartAngle, sector3EndAngle, '#f2f9f9');
+
+            // Reset to default styles
+            ctx.fillStyle = '#1d1d1b';
+            ctx.strokeStyle = '#1d1d1b';
+            ctx.lineWidth = lineWidth;
+
+            let currentAngle = sector1StartAngle;
+
+            // Draw Sector 1 lines and text (Materials)
+            for (let i = 0; i < sector1Lines; i++) {
+                const angle = currentAngle;
+                const item = materials[i];
+                const text = item.name;
+                const textWidth = ctx.measureText(text).width;
+                const textRadius = veryInnerRadius;
+                const startRadius = veryInnerRadius;
+                const textStartRadius = textRadius + textPadding;
+                const textEndRadius = textStartRadius + textWidth + textPadding + 3;
+
+                // Draw radial line (hidden under text)
+                ctx.beginPath();
+                ctx.moveTo(
+                    centerX + startRadius * Math.cos(angle),
+                    centerY + startRadius * Math.sin(angle)
+                );
+                ctx.lineTo(
+                    centerX + textStartRadius * Math.cos(angle),
+                    centerY + textStartRadius * Math.sin(angle)
+                );
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(
+                    centerX + textEndRadius * Math.cos(angle),
+                    centerY + textEndRadius * Math.sin(angle)
+                );
+                ctx.lineTo(
+                    centerX + extendedRadius * Math.cos(angle),
+                    centerY + extendedRadius * Math.sin(angle)
+                );
+                ctx.stroke();
+
+                // Draw text
+                const textX = centerX + textStartRadius * Math.cos(angle);
+                const textY = centerY + textStartRadius * Math.sin(angle);
+
+                // Store text element for hit detection
+                textElements.push({
+                    type: 'material',
+                    index: i,
+                    x: textX,
+                    y: textY,
+                    angle: angle,
+                    width: textWidth,
+                    height: 12,
+                    textStartRadius: textStartRadius
+                });
+
+                ctx.save();
+                ctx.translate(textX, textY);
+                ctx.rotate(angle + Math.PI);
+                ctx.font = '12px Helvetica, Arial, sans-serif';
+                ctx.fillStyle = '#1d1d1b';
+                ctx.fillText(text, 0, 0);
+                ctx.restore();
+
+                currentAngle += angleStep;
+            }
+
+            // Draw Sector 2 lines and text (Semi-Processed)
+            for (let i = 0; i < sector2Lines; i++) {
+                const angle = currentAngle;
+                const item = semiProcessed[i];
+                const text = item.name;
+                const textWidth = ctx.measureText(text).width;
+                const textRadius = innerCircle2Radius;
+                const isFirstOrLast = (i === 0) || (i === sector2Lines - 1);
+                const startRadius = isFirstOrLast ? innerCircle2Radius : innerCircle2Radius;
+                const textStartRadius = textRadius + textPadding;
+                const textEndRadius = textStartRadius + textWidth + textPadding + 3;
+
+                // Draw radial line (hidden under text, first and last stop at second circle)
+                ctx.beginPath();
+                ctx.moveTo(
+                    centerX + startRadius * Math.cos(angle),
+                    centerY + startRadius * Math.sin(angle)
+                );
+                ctx.lineTo(
+                    centerX + textStartRadius * Math.cos(angle),
+                    centerY + textStartRadius * Math.sin(angle)
+                );
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(
+                    centerX + textEndRadius * Math.cos(angle),
+                    centerY + textEndRadius * Math.sin(angle)
+                );
+                ctx.lineTo(
+                    centerX + extendedRadius * Math.cos(angle),
+                    centerY + extendedRadius * Math.sin(angle)
+                );
+                ctx.stroke();
+
+                // Draw text
+                const textX = centerX + textStartRadius * Math.cos(angle);
+                const textY = centerY + textStartRadius * Math.sin(angle);
+
+                // Store text element for hit detection
+                textElements.push({
+                    type: 'semiProcessed',
+                    index: i,
+                    x: textX,
+                    y: textY,
+                    angle: angle,
+                    width: textWidth,
+                    height: 12,
+                    textStartRadius: textStartRadius
+                });
+
+                ctx.save();
+                ctx.translate(textX, textY);
+                ctx.rotate(angle + Math.PI);
+                ctx.font = '12px Helvetica, Arial, sans-serif';
+                ctx.fillStyle = '#1d1d1b';
+                ctx.fillText(text, 0, 0);
+                ctx.restore();
+
+                currentAngle += angleStep;
+            }
+
+            // Draw Sector 3 lines and text (Furniture)
+            for (let i = 0; i < sector3Lines; i++) {
+                const angle = currentAngle;
+                const item = furniture[i];
+                const text = item.name;
+                const textWidth = ctx.measureText(text).width;
+                const textRadius = innerCircle1Radius;
+                const isFirstOrLast = (i === 0) || (i === sector3Lines - 1);
+                const startRadius = isFirstOrLast ? innerCircle1Radius : innerCircle1Radius;
+                const textStartRadius = textRadius + textPadding;
+                const textEndRadius = textStartRadius + textWidth + textPadding + 3;
+
+                // Draw radial line (hidden under text, first and last stop at third circle)
+                ctx.beginPath();
+                ctx.moveTo(
+                    centerX + startRadius * Math.cos(angle),
+                    centerY + startRadius * Math.sin(angle)
+                );
+                ctx.lineTo(
+                    centerX + textStartRadius * Math.cos(angle),
+                    centerY + textStartRadius * Math.sin(angle)
+                );
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(
+                    centerX + textEndRadius * Math.cos(angle),
+                    centerY + textEndRadius * Math.sin(angle)
+                );
+                ctx.lineTo(
+                    centerX + extendedRadius * Math.cos(angle),
+                    centerY + extendedRadius * Math.sin(angle)
+                );
+                ctx.stroke();
+
+                // Draw text
+                const textX = centerX + textStartRadius * Math.cos(angle);
+                const textY = centerY + textStartRadius * Math.sin(angle);
+
+                // Store text element for hit detection
+                textElements.push({
+                    type: 'furniture',
+                    index: i,
+                    x: textX,
+                    y: textY,
+                    angle: angle,
+                    width: textWidth,
+                    height: 12,
+                    textStartRadius: textStartRadius
+                });
+
+                ctx.save();
+                ctx.translate(textX, textY);
+                ctx.rotate(angle + Math.PI);
+                ctx.font = '12px Helvetica, Arial, sans-serif';
+                ctx.fillStyle = '#1d1d1b';
+                ctx.fillText(text, 0, 0);
+                ctx.restore();
+
+                currentAngle += angleStep;
+            }
+
+            // Draw concentric circles
+            for (let i = 0; i < concentricCircles; i++) {
+                const radius = innerRadius + i * circleSpacing;
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius, sector1StartAngle, sector3EndAngle);
+                ctx.stroke();
+            }
+
+            // Draw horizontal lines and characteristics (left side)
+            for (let i = 0; i < concentricCircles; i++) {
+                const radius = innerRadius + i * circleSpacing;
+                const y = centerY - radius;
+
+                if (i < characteristics.length) {
+                    const text = characteristics[i];
+                    const textWidth = ctx.measureText(text).width;
+                    const textX = lineEndX + textPadding;
+
+                    // Store characteristic text element for hit detection
+                    textElements.push({
+                        type: 'characteristic',
+                        index: i,
+                        x: textX,
+                        y: y,
+                        angle: 0,
+                        width: textWidth,
+                        height: 12
+                    });
+
+                    // Draw line segments (left side)
+                    ctx.beginPath();
+                    ctx.moveTo(centerX, y);
+                    ctx.lineTo(textX + textWidth + textPadding, y);
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.moveTo(textX - textPadding, y);
+                    ctx.lineTo(centerX - outerRadius, y);
+                    ctx.stroke();
+
+                    // Draw text (left-aligned)
+                    ctx.save();
+                    ctx.translate(textX, y);
+                    ctx.textAlign = 'left';
+                    ctx.font = '12px Helvetica, Arial, sans-serif';
+                    ctx.fillStyle = '#1d1d1b';
+                    ctx.fillText(text, 0, 0);
+                    ctx.restore();
+                } else {
+                    ctx.beginPath();
+                    ctx.moveTo(centerX, y);
+                    ctx.lineTo(lineEndX, y);
+                    ctx.stroke();
+                }
+            }
+
+            // Draw reference inner circle arcs (only in their respective sectors)
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, veryInnerRadius, sector1StartAngle, sector1EndAngle);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, innerCircle2Radius, sector2StartAngle, sector2EndAngle);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, innerCircle1Radius, sector3StartAngle, sector3EndAngle);
+            ctx.stroke();
+
+            // Draw circles at intersections
+            currentAngle = sector1StartAngle;
+            const concentricRadii = Array.from({ length: concentricCircles }, (_, i) => innerRadius + i * circleSpacing);
+
+            for (let i = 0; i < sector1Lines; i++) {
+                const angle = currentAngle;
+                const material = materials[i];
+                for (let j = 0; j < concentricRadii.length; j++) {
+                    const char = characteristics[j];
+                    const value = material.values[char];
+                    if (value) {
+                        drawCustomDot(angle, concentricRadii[j], char, value);
+                    }
+                }
+                currentAngle += angleStep;
+            }
+
+            for (let i = 0; i < sector2Lines; i++) {
+                const angle = currentAngle;
+                const material = semiProcessed[i];
+                for (let j = 0; j < concentricRadii.length; j++) {
+                    const char = characteristics[j];
+                    const value = material.values[char];
+                    if (value) {
+                        drawCustomDot(angle, concentricRadii[j], char, value);
+                    }
+                }
+                currentAngle += angleStep;
+            }
+
+            for (let i = 0; i < sector3Lines; i++) {
+                const angle = currentAngle;
+                const material = furniture[i];
+                for (let j = 0; j < concentricRadii.length; j++) {
+                    const char = characteristics[j];
+                    const value = material.values[char];
+                    if (value) {
+                        drawCustomDot(angle, concentricRadii[j], char, value);
+                    }
+                }
+                currentAngle += angleStep;
+            }
+        }
+
+        function drawHoverEffects() {
+            if (!hoveredMaterial && hoveredCharacteristic === null) {
+                return;
+            }
+
+            // Redraw the base grid with fade
+            ctx.globalAlpha = 0.3;
+            drawBaseGrid();
+            ctx.globalAlpha = 1;
+
+            const sector1Lines = materials.length;
+            const sector2Lines = semiProcessed.length;
+            const sector3Lines = furniture.length;
+
+            const totalLines = sector1Lines + sector2Lines + sector3Lines;
+            const totalAngle = (5 * Math.PI) / 3;
+            const angleStep = totalAngle / (totalLines - 1);
+
+            const sector1StartAngle = -Math.PI / 2 + 0.01;
+            const sector2StartAngle = sector1StartAngle + sector1Lines * angleStep;
+            const sector3StartAngle = sector1StartAngle + (sector1Lines + sector2Lines) * angleStep;
+
+            const outerRadius = innerRadius + (concentricCircles - 1) * circleSpacing;
+            const lineEndX = centerX - outerRadius;
+            const radialExtension = circleSpacing / 2;
+            const extendedRadius = outerRadius + radialExtension;
+
+            const outermostInnerRadius = innerRadius - circleSpacing;
+            const innerCircle1Radius = outermostInnerRadius - innerCircle3Spacing;
+            const innerCircle2Radius = innerCircle1Radius - innerCircleSpacing;
+            const veryInnerRadius = innerCircle2Radius - innerCircleSpacing;
+
+            const concentricRadii = Array.from({ length: concentricCircles }, (_, i) => innerRadius + i * circleSpacing);
+
+            // If a material is hovered, redraw its line, name, and circles with full opacity
+            if (hoveredMaterial) {
+                let currentAngle = sector1StartAngle;
+
+                // Redraw Sector 1 materials
+                for (let i = 0; i < sector1Lines; i++) {
+                    if (hoveredMaterial.type === 'material' && hoveredMaterial.index === i) {
+                        const angle = currentAngle + i * angleStep;
+                        const item = materials[i];
+                        const text = item.name;
+                        const textWidth = ctx.measureText(text).width;
+                        const textRadius = veryInnerRadius;
+                        const startRadius = veryInnerRadius;
+                        const textStartRadius = textRadius + textPadding;
+                        const textEndRadius = textStartRadius + textWidth + textPadding + 3;
+
+                        // Redraw radial line (full line)
+                        ctx.beginPath();
+                        ctx.moveTo(
+                            centerX + startRadius * Math.cos(angle),
+                            centerY + startRadius * Math.sin(angle)
+                        );
+                        ctx.lineTo(
+                            centerX + extendedRadius * Math.cos(angle),
+                            centerY + extendedRadius * Math.sin(angle)
+                        );
+                        ctx.stroke();
+
+                        // Redraw text (bold, same position, same color)
+                        const textX = centerX + textStartRadius * Math.cos(angle);
+                        const textY = centerY + textStartRadius * Math.sin(angle);
+                        ctx.save();
+                        ctx.translate(textX, textY);
+                        ctx.rotate(angle + Math.PI);
+                        ctx.font = 'bold 12px Helvetica, Arial, sans-serif';
+                        ctx.fillStyle = '#1d1d1b';
+                        ctx.textAlign = 'right';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(text, 0, 0);
+                        ctx.restore();
+
+                        // Redraw circles
+                        for (let j = 0; j < concentricRadii.length; j++) {
+                            const char = characteristics[j];
+                            const value = item.values[char];
+                            if (value) {
+                                drawCustomDot(angle, concentricRadii[j], char, value);
+                            }
+                        }
+                        break;
+                    }
+                }
+
+                // Redraw Sector 2 materials
+                currentAngle = sector1StartAngle + sector1Lines * angleStep;
+                for (let i = 0; i < sector2Lines; i++) {
+                    if (hoveredMaterial.type === 'semiProcessed' && hoveredMaterial.index === i) {
+                        const angle = currentAngle + i * angleStep;
+                        const item = semiProcessed[i];
+                        const text = item.name;
+                        const textWidth = ctx.measureText(text).width;
+                        const textRadius = innerCircle2Radius;
+                        const isFirstOrLast = (i === 0) || (i === sector2Lines - 1);
+                        const startRadius = isFirstOrLast ? innerCircle2Radius : innerCircle2Radius;
+                        const textStartRadius = textRadius + textPadding;
+                        const textEndRadius = textStartRadius + textWidth + textPadding + 3;
+
+                        // Redraw radial line (full line)
+                        ctx.beginPath();
+                        ctx.moveTo(
+                            centerX + startRadius * Math.cos(angle),
+                            centerY + startRadius * Math.sin(angle)
+                        );
+                        ctx.lineTo(
+                            centerX + extendedRadius * Math.cos(angle),
+                            centerY + extendedRadius * Math.sin(angle)
+                        );
+                        ctx.stroke();
+
+                        // Redraw text (bold, same position, same color)
+                        const textX = centerX + textStartRadius * Math.cos(angle);
+                        const textY = centerY + textStartRadius * Math.sin(angle);
+                        ctx.save();
+                        ctx.translate(textX, textY);
+                        ctx.rotate(angle + Math.PI);
+                        ctx.font = 'bold 12px Helvetica, Arial, sans-serif';
+                        ctx.fillStyle = '#1d1d1b';
+                        ctx.textAlign = 'right';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(text, 0, 0);
+                        ctx.restore();
+
+                        // Redraw circles
+                        for (let j = 0; j < concentricRadii.length; j++) {
+                            const char = characteristics[j];
+                            const value = item.values[char];
+                            if (value) {
+                                drawCustomDot(angle, concentricRadii[j], char, value);
+                            }
+                        }
+                        break;
+                    }
+                    currentAngle += angleStep;
+                }
+
+                // Redraw Sector 3 materials
+                currentAngle = sector1StartAngle + (sector1Lines + sector2Lines) * angleStep;
+                for (let i = 0; i < sector3Lines; i++) {
+                    if (hoveredMaterial.type === 'furniture' && hoveredMaterial.index === i) {
+                        const angle = currentAngle + i * angleStep;
+                        const item = furniture[i];
+                        const text = item.name;
+                        const textWidth = ctx.measureText(text).width;
+                        const textRadius = innerCircle1Radius;
+                        const isFirstOrLast = (i === 0) || (i === sector3Lines - 1);
+                        const startRadius = isFirstOrLast ? innerCircle1Radius : innerCircle1Radius;
+                        const textStartRadius = textRadius + textPadding;
+                        const textEndRadius = textStartRadius + textWidth + textPadding + 3;
+
+                        // Redraw radial line (full line)
+                        ctx.beginPath();
+                        ctx.moveTo(
+                            centerX + startRadius * Math.cos(angle),
+                            centerY + startRadius * Math.sin(angle)
+                        );
+                        ctx.lineTo(
+                            centerX + extendedRadius * Math.cos(angle),
+                            centerY + extendedRadius * Math.sin(angle)
+                        );
+                        ctx.stroke();
+
+                        // Redraw text (bold, same position, same color)
+                        const textX = centerX + textStartRadius * Math.cos(angle);
+                        const textY = centerY + textStartRadius * Math.sin(angle);
+                        ctx.save();
+                        ctx.translate(textX, textY);
+                        ctx.rotate(angle + Math.PI);
+                        ctx.font = 'bold 12px Helvetica, Arial, sans-serif';
+                        ctx.fillStyle = '#1d1d1b';
+                        ctx.textAlign = 'right';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(text, 0, 0);
+                        ctx.restore();
+
+                        // Redraw circles
+                        for (let j = 0; j < concentricRadii.length; j++) {
+                            const char = characteristics[j];
+                            const value = item.values[char];
+                            if (value) {
+                                drawCustomDot(angle, concentricRadii[j], char, value);
+                            }
+                        }
+                        break;
+                    }
+                    currentAngle += angleStep;
+                }
+            }
+
+            // If a characteristic is hovered, redraw its line, name, and circles with full opacity
+            if (hoveredCharacteristic !== null) {
+                const charRadius = innerRadius + hoveredCharacteristic * circleSpacing;
+                const y = centerY - charRadius;
+
+                // Redraw the horizontal line for the characteristic
+                ctx.beginPath();
+                ctx.moveTo(centerX, y);
+                ctx.lineTo(lineEndX, y);
+                ctx.stroke();
+
+                // Redraw the characteristic text (bold, same position, same color)
+                const text = characteristics[hoveredCharacteristic];
+                const textWidth = ctx.measureText(text).width;
+                const textX = lineEndX + textPadding;
+                ctx.save();
+                ctx.translate(textX, y);
+                ctx.textAlign = 'left';
+                ctx.font = 'bold 12px Helvetica, Arial, sans-serif';
+                ctx.fillStyle = '#1d1d1b';
+                ctx.fillText(text, 0, 0);
+                ctx.restore();
+
+                // Redraw the concentric circle
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, charRadius, sector1StartAngle, sector3EndAngle);
+                ctx.stroke();
+
+                // Redraw all circles on this concentric circle
+                let currentAngle = sector1StartAngle;
+                for (let i = 0; i < sector1Lines; i++) {
+                    const angle = currentAngle + i * angleStep;
+                    const material = materials[i];
+                    const char = characteristics[hoveredCharacteristic];
+                    const value = material.values[char];
+                    if (value) {
+                        drawCustomDot(angle, charRadius, char, value);
+                    }
+                }
+
+                currentAngle = sector1StartAngle + sector1Lines * angleStep;
+                for (let i = 0; i < sector2Lines; i++) {
+                    const angle = currentAngle + i * angleStep;
+                    const material = semiProcessed[i];
+                    const char = characteristics[hoveredCharacteristic];
+                    const value = material.values[char];
+                    if (value) {
+                        drawCustomDot(angle, charRadius, char, value);
+                    }
+                }
+
+                currentAngle = sector1StartAngle + (sector1Lines + sector2Lines) * angleStep;
+                for (let i = 0; i < sector3Lines; i++) {
+                    const angle = currentAngle + i * angleStep;
+                    const material = furniture[i];
+                    const char = characteristics[hoveredCharacteristic];
+                    const value = material.values[char];
+                    if (value) {
+                        drawCustomDot(angle, charRadius, char, value);
+                    }
+                }
+            }
+        }
+
+        function drawGrid() {
+            // Draw the base grid
+            drawBaseGrid();
+
+            // Draw hover effects if needed
+            drawHoverEffects();
+
+            // Position UI elements after drawing
+            positionUIElements();
+        }
+
+        // Event listeners for buttons and inputs
+        document.getElementById('addSector1').addEventListener('click', () => {
+            closeAllInputs();
+            document.getElementById('inputSector1').style.display = 'block';
+            document.getElementById('inputSector1Text').focus();
+            overlay.style.display = 'block';
+            activeSector = 1;
+        });
+
+        document.getElementById('addSector2').addEventListener('click', () => {
+            closeAllInputs();
+            document.getElementById('inputSector2').style.display = 'block';
+            document.getElementById('inputSector2Text').focus();
+            overlay.style.display = 'block';
+            activeSector = 2;
+        });
+
+        document.getElementById('addSector3').addEventListener('click', () => {
+            closeAllInputs();
+            document.getElementById('inputSector3').style.display = 'block';
+            document.getElementById('inputSector3Text').focus();
+            overlay.style.display = 'block';
+            activeSector = 3;
+        });
+
+        document.getElementById('inputSector1Text').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                addNewItem(1, e.target.value);
+                e.target.value = '';
+            }
+        });
+
+        document.getElementById('inputSector2Text').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                addNewItem(2, e.target.value);
+                e.target.value = '';
+            }
+        });
+
+        document.getElementById('inputSector3Text').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                addNewItem(3, e.target.value);
+                e.target.value = '';
+            }
+        });
+
+        // Close input when clicking outside
+        document.addEventListener('click', (e) => {
+            if (activeSector !== null) {
+                const inputContainer = document.getElementById(`inputSector${activeSector}`);
+                const button = document.getElementById(`addSector${activeSector}`);
+                if (!inputContainer.contains(e.target) && !button.contains(e.target)) {
+                    closeAllInputs();
+                }
+            }
+        });
+
+        // Mouse move event for hover effect
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            // Check if mouse is over any text element
+            hoveredElement = null;
+            hoveredMaterial = null;
+            hoveredCharacteristic = null;
+
+            for (const element of textElements) {
+                if (isPointInTextElement(mouseX, mouseY, element)) {
+                    hoveredElement = element;
+                    if (element.type === 'material' || element.type === 'semiProcessed' || element.type === 'furniture') {
+                        hoveredMaterial = element;
+                    } else if (element.type === 'characteristic') {
+                        hoveredCharacteristic = element.index;
+                    }
+                    break;
+                }
+            }
+
+            // Redraw to update hover effect
+            drawGrid();
+        });
+
+        // Mouse leave event to reset hover
+        canvas.addEventListener('mouseleave', () => {
+            hoveredMaterial = null;
+            hoveredCharacteristic = null;
+            hoveredElement = null;
+            drawGrid();
+        });
+
+        // Initialize
+        drawGrid();
+        positionUIElements();
+    </script>
+</body>
+</html>
