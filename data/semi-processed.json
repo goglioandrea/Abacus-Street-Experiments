@@ -1,0 +1,107 @@
+[
+  {
+    "name": "Metal Chain",
+    "values": {
+      "Noticeability": "1",
+      "Colour": "2",
+      "Feel": "0",
+      "Normal Use": "2",
+      "Misuse": "0",
+      "Risk Type": "",
+      "Normal Use 2": "",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Pallet",
+    "values": {
+      "Noticeability": "1",
+      "Colour": "2",
+      "Feel": "0",
+      "Normal Use": "2",
+      "Misuse": "0",
+      "Risk Type": "",
+      "Normal Use 2": "",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "PVC Tubes",
+    "values": {
+      "Noticeability": "1",
+      "Colour": "2",
+      "Feel": "0",
+      "Normal Use": "2",
+      "Misuse": "0",
+      "Risk Type": "",
+      "Normal Use 2": "",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Nylon Rope",
+    "values": {
+      "Noticeability": "1",
+      "Colour": "0",
+      "Feel": "1",
+      "Normal Use": "2",
+      "Misuse": "0",
+      "Risk Type": "",
+      "Normal Use 2": "",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Nylon Net",
+    "values": {
+      "Noticeability": "1",
+      "Colour": "0",
+      "Feel": "1",
+      "Normal Use": "2",
+      "Misuse": "1",
+      "Risk Type": "",
+      "Normal Use 2": "",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Hemp Rope",
+    "values": {
+      "Noticeability": "1",
+      "Colour": "0",
+      "Feel": "0",
+      "Normal Use": "2",
+      "Misuse": "0",
+      "Risk Type": "",
+      "Normal Use 2": "",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Metal Net",
+    "values": {
+      "Noticeability": "0",
+      "Colour": "2",
+      "Feel": "0",
+      "Normal Use": "1",
+      "Misuse": "1",
+      "Risk Type": "",
+      "Normal Use 2": "",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  }
+]
