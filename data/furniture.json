@@ -1,0 +1,152 @@
+[
+  {
+    "name": "Bench",
+    "values": {
+      "Noticeability": "",
+      "Colour": "",
+      "Feel": "",
+      "Normal Use": "",
+      "Misuse": "",
+      "Risk Type": "",
+      "Normal Use 2": "",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Bollard",
+    "values": {
+      "Noticeability": "",
+      "Colour": "",
+      "Feel": "",
+      "Normal Use": "",
+      "Misuse": "",
+      "Risk Type": "",
+      "Normal Use 2": "",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Street Lamp",
+    "values": {
+      "Noticeability": "",
+      "Colour": "",
+      "Feel": "",
+      "Normal Use": "",
+      "Misuse": "",
+      "Risk Type": "",
+      "Normal Use 2": "",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Plant Case",
+    "values": {
+      "Noticeability": "",
+      "Colour": "",
+      "Feel": "",
+      "Normal Use": "",
+      "Misuse": "",
+      "Risk Type": "",
+      "Normal Use 2": "",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Plant Pot",
+    "values": {
+      "Noticeability": "",
+      "Colour": "",
+      "Feel": "",
+      "Normal Use": "",
+      "Misuse": "",
+      "Risk Type": "",
+      "Normal Use 2": "",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Sign",
+    "values": {
+      "Noticeability": "",
+      "Colour": "",
+      "Feel": "",
+      "Normal Use": "",
+      "Misuse": "",
+      "Risk Type": "",
+      "Normal Use 2": "",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Bike Rack",
+    "values": {
+      "Noticeability": "",
+      "Colour": "",
+      "Feel": "",
+      "Normal Use": "",
+      "Misuse": "",
+      "Risk Type": "",
+      "Normal Use 2": "",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Street Cones",
+    "values": {
+      "Noticeability": "",
+      "Colour": "",
+      "Feel": "",
+      "Normal Use": "",
+      "Misuse": "",
+      "Risk Type": "",
+      "Normal Use 2": "",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Metal Fence",
+    "values": {
+      "Noticeability": "",
+      "Colour": "",
+      "Feel": "",
+      "Normal Use": "",
+      "Misuse": "",
+      "Risk Type": "",
+      "Normal Use 2": "",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  },
+  {
+    "name": "Wood Fence",
+    "values": {
+      "Noticeability": "",
+      "Colour": "",
+      "Feel": "",
+      "Normal Use": "",
+      "Misuse": "",
+      "Risk Type": "",
+      "Normal Use 2": "",
+      "Vandalize": "",
+      "Damage Type": "",
+      "Tactility": ""
+    }
+  }
+]
