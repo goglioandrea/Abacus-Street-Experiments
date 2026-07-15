@@ -1,0 +1,3093 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Abacus of Street Experiment Features</title>
+    <!--
+      V6.0 — Vocabulary rationalization + de-duplication. No UX change.
+      V6.5 — Intro animation (first load per browser session + after whole-abacus
+        reset). Six timed phases driven by one rAF loop: (1) title typed
+        letter-by-letter with a blinking underscore on a blank page; (2) legend
+        property names + connectors + group stubs/verticals fade in; (3) property
+        ring arcs sweep on like a loading buffer (linear); (4) legend level beads
+        + labels fade in after a 0.2s gap; (5) feature names appear one at a time
+        (0.1s each, sequential), each name's radial line growing 0.5s the instant
+        its name finishes; (6) remaining elements (zones, inner arcs, crossing
+        beads) fade in. Fades use easeInOutQuad, the P3 sweep is linear. Input is
+        disabled during the intro (no skip). Honors prefers-reduced-motion by
+        jumping to the final frame. Built on the V6.5-stage1 sub-draw decomposition.
+      V6.5-stage1 — Internal refactor only (no visual change): drawBaseGrid()
+        decomposed into independently-callable sub-draws (drawCategoryZones,
+        drawFeatureLines, drawFeatureNames, drawPropertyRings [sweep-capable],
+        drawLegendNamesAndConnectors, drawLegendLevels, drawInnerArcs,
+        drawCrossingBeads), each accepting an alpha and, where noted, a progress
+        arg. drawPropertyRow() gained an opts.part ('names' | 'levels') seam.
+        Full render calls the originals in identical order, so output is
+        op-for-op identical to V6.4 (verified via headless jsdom call-log parity).
+        Groundwork for the intro animation; no behaviour change on its own.
+      V6.4 — Title dark grey (#191917), larger gap to reset button.
+      V6.3 — Title 86px Helvetica Light, nudged left; whole-abacus reset button
+        smaller and centred beneath the title. Remove-level (slash) button restored
+        as a second option (works on default levels too; emptied default beads then
+        expose delete/reset to restore). Picker action buttons stacked vertically.
+      V6.2 — Title moved to diagram centre ("Abacus", Roboto). Four-way reset
+        model: reset features / reset properties / reset beads / reset whole
+        abacus. Feature & property resets no longer touch beads. Level picker
+        gains top-right reset-all-beads + delete-this-bead buttons. Whole-abacus
+        reset button (2x size) at the title's top-right. Confirmation strings
+        updated. Hover fix made symmetric (name<->bead both clear stale focus).
+      V6.1 — Bug fixes:
+        1. Bead values assigned/changed on DEFAULT features now persist (stored as
+           per-feature value-override deltas vs a frozen snapshot; reset reverts
+           them). Previously only user-added features were saved.
+        2. Fixed stale hover: moving from a filled bead (focus) onto a different
+           feature's name left the old focus active and blanked the new element.
+           focusedCrossing is now cleared when the cursor lands on a non-crossing
+           hover target.
+      ============================================================================
+      NAMING SCHEME (authoritative)
+        Feature            a thing plotted on a radial line. Subdivided into three
+                           CATEGORIES: 'material', 'semiProcessed', 'furniture'.
+                           (Displayed: Materials / Semi-processed Products / Furniture.)
+        Property           a thing plotted on a concentric+horizontal line. Each is
+                           either 'incremental' (colour-coded) or 'neutral'
+                           (letter-coded), and is declined into three PROPERTY LEVELS.
+        Property group     a named set of properties (drawn with a connector + label).
+        Level bead         the coloured/lettered circle at a Feature x Property crossing
+                           (and in the per-property legend).
+        Feature line       a radial line (one per feature).
+        Property line      a concentric ring + its horizontal left-side segment.
+
+      let vs const invariants (do not "tighten" without thought):
+        feature category arrays (materials/semiProcessed/furniture) and `properties`
+          are declared `let` (delete/reset REASSIGN them via .filter()).
+        propertyType / levelNames / letterMapping / propertyHues are `const`
+          (mutated in place - keys added/deleted, never reassigned).
+
+      SERIALIZED CONTRACTS (renamed in V6.0, with migration):
+        localStorage 'abacus_user_data'      -> 'abacus_user_data_v6'
+        localStorage 'abacus_property_hues'  -> 'abacus_property_hues_v6'
+        global window.__abacusItems          -> window.__abacusFeatures  (features.js)
+        file items.js                        -> features.js
+        Old keys are read once (migration) and left in place (non-destructive).
+        The property-name strings inside each feature's `values` map
+        ("Noticeability", "Normal Use 2", ...) are NOT renamed - they are the domain
+        keys shared with properties.js.
+      ============================================================================
+    -->
+    <style>
+        body {
+            font-family: Helvetica, Arial, sans-serif;
+            margin: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .canvas-container {
+            position: relative;
+            margin-top: 20px;
+        }
+        canvas {
+            background: white;
+            display: block;
+        }
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.7);
+            display: none;
+            pointer-events: none;
+            z-index: 1;
+        }
+        .add-button {
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            border: none;
+            background: transparent;
+            color: #605a5a;
+            font-size: 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transform: translate(-50%, -50%);
+            padding: 0;
+            outline: none;
+            font-weight: bold;
+            transition: all 0.2s ease;
+            z-index: 2;
+        }
+        .add-button:hover {
+            background-color: #605a5a;
+            color: white;
+            border-radius: 50%;
+        }
+        /* Centered diagram title (replaces the old page <h1>). Nudged left of
+           the true centre: the furniture sector sits further out, so a dead-centre
+           title reads as off-balance toward it. */
+        #abacusTitle {
+            position: absolute;
+            left: 876px;
+            top: 900px;
+            transform: translate(-50%, -50%);
+            font-family: Helvetica, Arial, sans-serif;
+            font-weight: 300;
+            font-size: 86px;
+            color: #191917;
+            white-space: nowrap;
+            user-select: none;
+            pointer-events: none;
+            z-index: 2;
+        }
+        /* Whole-abacus reset button: centered under the title text. */
+        #abacusResetBtn {
+            position: absolute;
+            width: 36px;
+            height: 36px;
+            border: none;
+            background: transparent;
+            color: #605a5a;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transform: translate(-50%, -50%);
+            padding: 0;
+            outline: none;
+            transition: all 0.2s ease;
+            z-index: 3;
+        }
+        #abacusResetBtn svg { width: 20px; height: 20px; pointer-events: none; }
+        /* Intro: buttons are placed at opacity 0, then fade in during the final
+           phase. A dedicated opacity-only transition avoids the `all` transition
+           animating their positions when they're placed. */
+        .intro-hidden { opacity: 0 !important; }
+        .intro-fade-in { transition: opacity 500ms ease !important; opacity: 1 !important; }
+        #abacusResetBtn:hover {
+            background-color: #605a5a;
+            color: white;
+            border-radius: 50%;
+        }
+        .text-input-container {
+            position: absolute;
+            display: none;
+            transform: translate(0, -50%);
+            z-index: 2;
+        }
+        .text-input-container input {
+            border: none;
+            border-bottom: 1px solid #1d1d1b;
+            background: transparent;
+            font-family: Helvetica, Arial, sans-serif;
+            font-size: 12px;
+            padding: 4px;
+            outline: none;
+            width: 120px;
+            margin-left: 10px;
+        }
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 32px;
+            height: 18px;
+            margin: 0 6px;
+            vertical-align: middle;
+        }
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #c0bcbc;
+            transition: 0.2s;
+            border-radius: 18px;
+        }
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 12px; width: 12px;
+            left: 3px; bottom: 3px;
+            background-color: white;
+            transition: 0.2s;
+            border-radius: 50%;
+        }
+        .toggle-switch input:checked + .toggle-slider {
+            background-color: #605a5a;
+        }
+        .toggle-switch input:checked + .toggle-slider:before {
+            transform: translateX(14px);
+        }
+        .toggle-label {
+            font-family: Helvetica, Arial, sans-serif;
+            font-size: 11px;
+            color: #605a5a;
+            vertical-align: middle;
+            user-select: none;
+        }
+        .toggle-row {
+            display: inline-flex;
+            align-items: center;
+            margin-left: 6px;
+        }
+
+        /* User-action buttons: appear on hover of user-added properties/features. */
+        .user-actions {
+            position: absolute;
+            display: none;
+            z-index: 50;
+            white-space: nowrap;
+            font-size: 0;
+            transform-origin: 0 50%;
+        }
+        .user-action-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            margin-right: 4px;
+            padding: 0;
+            border: 1px solid #605a5a;
+            border-radius: 50%;
+            background: white;
+            color: #605a5a;
+            cursor: pointer;
+            vertical-align: middle;
+        }
+        .user-action-btn:hover {
+            background: #f4ebe9;
+        }
+        .user-action-btn svg {
+            width: 11px;
+            height: 11px;
+            pointer-events: none;
+        }
+
+        /* Modal confirmation dialog */
+        .confirm-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.4);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .confirm-box {
+            background: white;
+            padding: 22px 24px;
+            border-radius: 6px;
+            max-width: 420px;
+            font-family: Helvetica, Arial, sans-serif;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        }
+        .confirm-box p {
+            margin: 0 0 18px 0;
+            font-size: 14px;
+            color: #1d1d1b;
+            line-height: 1.45;
+        }
+        .confirm-buttons {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+        .confirm-buttons button {
+            padding: 6px 14px;
+            border: 1px solid #605a5a;
+            background: white;
+            font-family: Helvetica, Arial, sans-serif;
+            font-size: 12px;
+            cursor: pointer;
+            border-radius: 3px;
+        }
+        .confirm-buttons button.primary {
+            background: #605a5a;
+            color: white;
+        }
+        .confirm-buttons button:hover {
+            background: #f4ebe9;
+        }
+        .confirm-buttons button.primary:hover {
+            background: #4a4444;
+        }
+
+        /* Level picker modal */
+        .level-picker-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(255, 255, 255, 0.82);
+            z-index: 200;
+            display: none;
+            opacity: 0;
+            transition: opacity 180ms ease;
+            pointer-events: auto;
+        }
+        .level-picker-overlay.active { opacity: 1; }
+        .level-picker {
+            position: absolute;
+            background: #ffffff;
+            border: 1px solid #605a5a;
+            padding: 10px 12px;
+            box-sizing: border-box;
+            min-width: 180px;
+            font-family: Helvetica, Arial, sans-serif;
+            z-index: 210;
+            display: none;
+            opacity: 0;
+            transition: opacity 180ms ease;
+        }
+        .level-picker.active { opacity: 1; }
+        /* Reset/delete-bead buttons in the picker's top-right corner. */
+        .level-picker-actions {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            z-index: 1;
+        }
+        .picker-action-btn {
+            width: 18px;
+            height: 18px;
+            padding: 0;
+            border: 1px solid #605a5a;
+            border-radius: 50%;
+            background: #ffffff;
+            color: #605a5a;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .picker-action-btn:hover { background: #f4ebe9; }
+        .picker-action-btn svg { width: 10px; height: 10px; pointer-events: none; }
+        .level-picker-feature {
+            font-size: 13px;
+            font-weight: bold;
+            color: #1d1d1b;
+            text-align: center;
+        }
+        .level-picker-property {
+            font-size: 11px;
+            color: #605a5a;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .level-picker-circles {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .level-circle {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: 1px solid #605a5a;
+            background: #ffffff;
+            padding: 0;
+            cursor: pointer;
+            font-family: Helvetica, Arial, sans-serif;
+            font-size: 11px;
+            font-weight: bold;
+            color: #605a5a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .level-circle:hover { box-shadow: 0 0 0 2px rgba(96, 90, 90, 0.18); }
+        .level-picker-status {
+            font-size: 11px;
+            color: #1d1d1b;
+            text-align: center;
+            padding: 4px 6px;
+            border: 1px solid #605a5a;
+            background: #ffffff;
+            min-height: 14px;
+        }
+
+        /* Level-name picker */
+        .level-name-picker-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(255, 255, 255, 0.82);
+            z-index: 200;
+            display: none;
+            opacity: 0;
+            transition: opacity 180ms ease;
+        }
+        .level-name-picker-overlay.active { opacity: 1; }
+        .level-name-picker {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 220;
+            display: none;
+            opacity: 0;
+            transition: opacity 180ms ease;
+            pointer-events: none;
+        }
+        .level-name-picker.active { opacity: 1; }
+        .level-name-picker-title {
+            position: absolute;
+            font-family: Helvetica, Arial, sans-serif;
+            font-size: 13px;
+            font-weight: bold;
+            color: #1d1d1b;
+            pointer-events: none;
+        }
+        .level-name-input {
+            position: absolute;
+            pointer-events: auto;
+            background: #ffffff;
+            border: 1px solid #605a5a;
+            padding: 2px 5px;
+            font-family: Helvetica, Arial, sans-serif;
+            font-size: 12px;
+            color: #1d1d1b;
+            box-sizing: border-box;
+            outline: none;
+        }
+        .level-name-input::placeholder { color: #b0b0b0; }
+        .level-name-input:focus { border-color: #1d1d1b; }
+
+        /* Type-preview bead next to the incremental/neutral toggle. */
+        .type-preview {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-left: 10px;
+            vertical-align: middle;
+            box-sizing: border-box;
+            transition: background 150ms ease, border-color 150ms ease;
+        }
+        .type-preview.incremental {
+            background: hsl(200, 38%, 48%);
+            border: 1px solid hsl(200, 38%, 38%);
+        }
+        .type-preview.neutral {
+            background: #ffffff;
+            border: 1px solid #605a5a;
+        }
+    </style>
+</head>
+<body>
+    <div class="canvas-container" style="width: 1800px; height: 1800px;">
+        <canvas id="gridCanvas" width="1800" height="1800"></canvas>
+        <div id="overlay"></div>
+
+        <!-- Centered diagram title + whole-abacus reset button (top-right of title). -->
+        <div id="abacusTitle">Abacus</div>
+        <button id="abacusResetBtn" title="Reset the whole abacus">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/>
+                <polyline points="3 3 3 8 8 8"/>
+            </svg>
+        </button>
+
+        <!-- Add buttons for each feature category -->
+        <button class="add-button" id="addSector1" style="display: none;">+</button>
+        <div class="text-input-container" id="inputSector1">
+            <input type="text" id="inputSector1Text" placeholder="New material" />
+        </div>
+
+        <button class="add-button" id="addSector2" style="display: none;">+</button>
+        <div class="text-input-container" id="inputSector2">
+            <input type="text" id="inputSector2Text" placeholder="New semi-processed product" />
+        </div>
+
+        <button class="add-button" id="addSector3" style="display: none;">+</button>
+        <div class="text-input-container" id="inputSector3">
+            <input type="text" id="inputSector3Text" placeholder="New furniture" />
+        </div>
+
+        <!-- Property button: adds a new property (a new outer property line) -->
+        <button class="add-button" id="addProperty" style="display: none;">+</button>
+        <div class="text-input-container" id="inputProperty">
+            <input type="text" id="inputPropertyText" placeholder="New property" />
+            <span class="toggle-row">
+                <span class="toggle-label">neutral</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="inputPropertyTypeToggle" checked />
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">incremental</span>
+                <span class="type-preview incremental" id="typePreview"></span>
+            </span>
+        </div>
+
+        <!-- Action buttons shown on hover of user-added properties / features. -->
+        <div class="user-actions" id="propertyActions">
+            <button class="user-action-btn" data-action="reset-property" title="Reset all added properties">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/>
+                    <polyline points="3 3 3 8 8 8"/>
+                </svg>
+            </button>
+            <button class="user-action-btn" data-action="delete-property" title="Delete this property">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                    <path d="M10 11v6M14 11v6"/>
+                    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+            </button>
+        </div>
+
+        <div class="user-actions" id="featureActions">
+            <button class="user-action-btn" data-action="reset-feature" title="Reset all added features">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/>
+                    <polyline points="3 3 3 8 8 8"/>
+                </svg>
+            </button>
+            <button class="user-action-btn" data-action="delete-feature" title="Delete this feature">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                    <path d="M10 11v6M14 11v6"/>
+                    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+            </button>
+        </div>
+
+        <div class="confirm-modal" id="confirmModal">
+            <div class="confirm-box">
+                <p id="confirmMessage"></p>
+                <div class="confirm-buttons">
+                    <button id="confirmCancel">Cancel</button>
+                    <button id="confirmOk" class="primary">OK</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="level-picker-overlay" id="levelPickerOverlay"></div>
+        <div class="level-picker" id="levelPicker">
+            <div class="level-picker-actions" id="pickerActions" style="display:none;">
+                <button class="picker-action-btn" id="pickerDeleteBead" title="Reset this level to default">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="3 6 5 6 21 6"/>
+                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                        <path d="M10 11v6M14 11v6"/>
+                        <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                    </svg>
+                </button>
+                <button class="picker-action-btn" id="pickerResetBeads" title="Reset all modified levels">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/>
+                        <polyline points="3 3 3 8 8 8"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="level-picker-feature" id="pickerFeature"></div>
+            <div class="level-picker-property" id="pickerProperty"></div>
+            <div class="level-picker-circles" id="pickerCircles"></div>
+            <div class="level-picker-status" id="pickerStatus">select level</div>
+        </div>
+
+        <div class="level-name-picker-overlay" id="levelNamePickerOverlay"></div>
+        <div class="level-name-picker" id="levelNamePicker">
+            <div class="level-name-picker-title" id="levelNameTitle">Insert the names of property levels</div>
+        </div>
+    </div>
+
+    <script src="properties.js"></script>
+    <script src="features.js"></script>
+    <!-- Default data loaded as plain scripts so file:// works (no fetch/CORS).
+         Each assigns a global: window.__abacusProperties / __abacusFeatures. -->
+    <script>
+    "use strict";
+
+    const canvas = document.getElementById('gridCanvas');
+    const ctx = canvas.getContext('2d');
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    const overlay = document.getElementById('overlay');
+
+    // ---- Fixed drawing parameters (scaled for high-res canvas) ----
+    const innerRadius = 400;
+    const circleSpacing = 24;
+    const innerCircleSpacing = 30;          // gap between the first three inner rings
+    const innerCircle3Spacing = 76 * 1.5;   // gap between the third and fourth inner rings
+    const textPadding = 6;
+    const dotRadius = 8;                     // level-bead radius
+    const buttonMargin = 20;
+    const lineWidth = 0.8;
+
+    // =====================================================================
+    // DATA
+    // Defaults come from properties.js / features.js. User additions merge
+    // from localStorage. Arrays/objects are declared here and populated by
+    // init(); all drawing references these same bindings so mutations show.
+    //
+    // `properties`  = the list of property names (was "characteristics").
+    // The three feature CATEGORY arrays are materials / semiProcessed / furniture.
+    // =====================================================================
+    let properties = [];
+    const letterMapping = {};   // neutral properties: level value -> letter
+    const propertyType = {};    // property name -> 'incremental' | 'neutral'
+    const levelNames = {};      // property name -> [lvl0, lvl1, lvl2] labels
+
+    let materials = [];
+    let semiProcessed = [];
+    let furniture = [];
+
+    // Property groups: {name, properties:[propNames]}. Membership is by NAME so
+    // it survives ring reordering/additions. Indices are resolved on demand.
+    let propertyGroups = [];
+
+    // DEFAULT_PROPERTY_COUNT anchors property text / the "+" button to a fixed
+    // border so they don't drift left as properties are added. Set in init().
+    let DEFAULT_PROPERTY_COUNT = 12;
+
+    // Frozen at init so saveUserData can diff current state vs defaults.
+    const defaultPropertyNames = new Set();
+    const defaultMaterialNames = new Set();
+    const defaultSemiNames = new Set();
+    const defaultFurnitureNames = new Set();
+    // Snapshot of each default feature's original values, frozen at init, keyed
+    // by category -> feature name -> { propertyName: value }. Used to diff bead
+    // overrides on default features so they persist (see saveUserData).
+    const defaultFeatureValues = { material: {}, semiProcessed: {}, furniture: {} };
+
+    // ---- Feature categories: single source of truth for the triplicated loops ----
+    // `arr()` returns the live array (they get reassigned on delete, so we can't
+    // cache the reference). `textRadiusKey` selects which inner ring the category's
+    // feature labels sit on (resolved in geometry()).
+    const FEATURE_CATEGORIES = [
+        { type: 'material',      arr: () => materials,     textRadiusKey: 'veryInnerR'    },
+        { type: 'semiProcessed', arr: () => semiProcessed, textRadiusKey: 'innerCircle2R' },
+        { type: 'furniture',     arr: () => furniture,     textRadiusKey: 'innerCircle1R' },
+    ];
+    function categoryArray(type) {
+        return type === 'material' ? materials
+             : type === 'semiProcessed' ? semiProcessed
+             : furniture;
+    }
+    function defaultNameSet(type) {
+        return type === 'material' ? defaultMaterialNames
+             : type === 'semiProcessed' ? defaultSemiNames
+             : defaultFurnitureNames;
+    }
+
+    // =====================================================================
+    // GEOMETRY — one source of truth. Everything that used to recompute inner
+    // radii, angle steps, sector angles, the text anchor, etc. calls geometry().
+    // Pure function of the constants + current feature/property counts, so it's
+    // cheap to recompute per draw and never drifts out of sync.
+    // =====================================================================
+    function geometry() {
+        const s1 = materials.length;
+        const s2 = semiProcessed.length;
+        const s3 = furniture.length;
+        const totalLines = s1 + s2 + s3;
+        const totalAngle = (5 * Math.PI) / 3;
+        const angleStep = totalAngle / (totalLines - 1);
+        const startAngle = -Math.PI / 2;
+
+        const sector1StartAngle = startAngle;
+        const sector1EndAngle   = startAngle + (s1 - 1) * angleStep;
+        const sector2StartAngle = startAngle + s1 * angleStep;
+        const sector2EndAngle   = startAngle + (s1 + s2 - 1) * angleStep;
+        const sector3StartAngle = startAngle + (s1 + s2) * angleStep;
+        const sector3EndAngle   = startAngle + (s1 + s2 + s3 - 1) * angleStep;
+
+        const outermostInnerR = innerRadius - circleSpacing;
+        const innerCircle1R   = outermostInnerR - innerCircle3Spacing;
+        const innerCircle2R   = innerCircle1R - innerCircleSpacing;
+        const veryInnerR      = innerCircle2R - innerCircleSpacing;
+
+        const outerRadius = innerRadius + (properties.length - 1) * circleSpacing;
+        const extendedRadius = outerRadius + circleSpacing / 2;
+
+        // Property text / legend / lines are anchored to the DEFAULT-size border
+        // so they don't drift left as new properties grow the actual outer radius.
+        const defaultOuterRadius = innerRadius + (DEFAULT_PROPERTY_COUNT - 1) * circleSpacing;
+        const textAnchorX = centerX - defaultOuterRadius;
+
+        return {
+            s1, s2, s3, totalLines, angleStep, startAngle,
+            sector1StartAngle, sector1EndAngle,
+            sector2StartAngle, sector2EndAngle,
+            sector3StartAngle, sector3EndAngle,
+            outermostInnerR, innerCircle1R, innerCircle2R, veryInnerR,
+            outerRadius, extendedRadius, defaultOuterRadius, textAnchorX,
+        };
+    }
+
+    // The angle of feature #i within its category, given geometry g.
+    // Category order is materials, then semiProcessed, then furniture.
+    function categoryBaseIndex(type, g) {
+        if (type === 'material') return 0;
+        if (type === 'semiProcessed') return g.s1;
+        return g.s1 + g.s2;
+    }
+    function featureAngle(type, index, g) {
+        return g.startAngle + (categoryBaseIndex(type, g) + index) * g.angleStep;
+    }
+    // The inner radius a category's feature labels sit on.
+    function categoryTextRadius(type, g) {
+        return type === 'material' ? g.veryInnerR
+             : type === 'semiProcessed' ? g.innerCircle2R
+             : g.innerCircle1R;
+    }
+
+    // =====================================================================
+    // FADE ENGINE — one implementation, two instances.
+    //   mainFade         drives hover dimming of the whole diagram.
+    //   intersectionFade drives the empty-crossing placeholder appear/disappear.
+    // Both share the same duration, easing and rAF step loop; only their state
+    // (current value / target) differs. `onSettle(value)` fires once when a fade
+    // reaches its target, so callers can clear stale hover state, etc.
+    // =====================================================================
+    const FADE_DURATION_MS = 200;
+    function easeInOutQuad(t) {
+        return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    }
+    function createFade(onSettle) {
+        let value = 0, target = 0, startValue = 0, startTime = 0, frameId = null;
+        function step(now) {
+            const t = Math.min((now - startTime) / FADE_DURATION_MS, 1);
+            value = startValue + (target - startValue) * easeInOutQuad(t);
+            drawGrid();
+            if (t < 1) {
+                frameId = requestAnimationFrame(step);
+            } else {
+                value = target;
+                frameId = null;
+                if (onSettle) onSettle(value);
+            }
+        }
+        return {
+            start(newTarget) {
+                if (newTarget === target && value === newTarget) return;
+                target = newTarget;
+                startValue = value;
+                startTime = performance.now();
+                if (frameId === null) frameId = requestAnimationFrame(step);
+            },
+            get value() { return value; },
+            get target() { return target; },
+        };
+    }
+
+    // mainFade settle: once fully faded out, drop the displayed hover so we stop
+    // drawing the highlight overlay until the next hover starts.
+    const mainFade = createFade((v) => {
+        if (v === 0) {
+            hoveredFeature = null;
+            hoveredProperty = null;
+            hoveredLevelValue = null;
+            hoveredGroup = null;
+            focusedCrossing = null;
+            updateActionButtons();
+            drawGrid();
+        }
+    });
+    const intersectionFade = createFade((v) => {
+        if (v === 0) {
+            hoveredCrossing = null;
+            drawGrid();
+        }
+    });
+
+    // =====================================================================
+    // HOVER / FOCUS STATE
+    //   hoveredFeature   : {type, index, angle, textStartRadius, ...} | null
+    //   hoveredProperty  : property ring index | null
+    //   hoveredLevelValue: "0"/"1"/"2" when hovering a specific legend level, else null
+    //   hoveredGroup     : group object | null
+    //   hoveredCrossing  : empty-crossing placeholder descriptor | null
+    //   focusedCrossing  : filled-crossing focus descriptor | null
+    // =====================================================================
+    let hoveredElement = null;
+    let hoveredFeature = null;
+    let hoveredProperty = null;
+    let hoveredLevelValue = null;
+    let hoveredGroup = null;
+    let hoveredCrossing = null;
+    let focusedCrossing = null;
+
+    // Long-press (filled bead -> reopen level picker)
+    let longPressTimer = null;
+    let longPressKey = null;
+    let longPressStartTime = 0;
+    let longPressFrameId = null;
+    const LONG_PRESS_MS = 2000;
+
+    // Hit-test registry, rebuilt each base-grid draw.
+    const textElements = [];
+
+    // Which category's add-input is active (1/2/3 or 'property' or null).
+    let activeSector = null;
+
+    // =====================================================================
+    // PROPERTY GROUPS
+    // =====================================================================
+    function groupForProperty(name) {
+        for (const g of propertyGroups) if (g.properties.includes(name)) return g;
+        return null;
+    }
+    function groupForIndex(i) {
+        return groupForProperty(properties[i]) || null;
+    }
+    // Ring indices occupied by a group's present properties, ascending.
+    function groupIndices(g) {
+        const idxs = [];
+        for (const p of g.properties) {
+            const i = properties.indexOf(p);
+            if (i >= 0) idxs.push(i);
+        }
+        idxs.sort((a, b) => a - b);
+        return idxs;
+    }
+
+    // =====================================================================
+    // PROPERTY / LEVEL HELPERS
+    // =====================================================================
+    function getPropertyType(name) {
+        return propertyType[name] || "incremental";
+    }
+    function getLevelLabel(name, value) {
+        const names = levelNames[name];
+        const idx = Number(value);
+        if (names && Number.isInteger(idx) && names[idx] !== undefined && names[idx] !== '') return names[idx];
+        return `${name.toLowerCase()}${value}`;
+    }
+    function getDisplayName(name) {
+        if (name === "Normal Use 2") return "Normal Use";
+        return name;
+    }
+
+    // Orient text along a feature line. Right half (cos>0) is rotated 180 deg from
+    // the left half so text is upright on both sides. Hit detection assumes text
+    // occupies world points (x + t*cos, y + t*sin) for t in [0, width].
+    function applyRadialTextOrientation(angle) {
+        if (Math.cos(angle) > 0) {
+            ctx.rotate(angle);
+            ctx.textAlign = 'left';
+        } else {
+            ctx.rotate(angle + Math.PI);
+            ctx.textAlign = 'right';
+        }
+    }
+
+    // Does a feature carry the given level for the given property? Handles
+    // compound values like "0,2" (feature at multiple levels for that property).
+    function featureMatchesLevel(feature, name, levelValue) {
+        const val = feature.values[name];
+        if (!val) return false;
+        if (val.includes(',')) return val.split(',').map(v => v.trim()).includes(levelValue);
+        return val === levelValue;
+    }
+
+    // =====================================================================
+    // LEVEL-BEAD COLOUR
+    // Incremental properties get a per-property random hue (persisted). The three
+    // levels are encoded as lightness (level 2 darkest = "main", 1, then 0). Using
+    // lightness for levels keeps them distinguishable for colour-blind viewers;
+    // the per-property hue keeps different properties distinct.
+    // =====================================================================
+    const PROPERTY_HUES_KEY = 'abacus_property_hues_v6';
+    const PROPERTY_HUES_KEY_LEGACY = 'abacus_property_hues';
+    const propertyHues = {};
+
+    function savePropertyHues() {
+        try { localStorage.setItem(PROPERTY_HUES_KEY, JSON.stringify(propertyHues)); }
+        catch (e) {}
+    }
+    function getHueForProperty(name) {
+        if (propertyHues[name] === undefined) {
+            propertyHues[name] = Math.floor(Math.random() * 360);
+            savePropertyHues();
+        }
+        return propertyHues[name];
+    }
+
+    const LEVEL_SATURATION = 38;
+    const LEVEL_LIGHTNESS = { '0': 82, '1': 65, '2': 48 };
+    function getColorForValue(name, value) {
+        if (getPropertyType(name) === 'neutral') return null;
+        const l = LEVEL_LIGHTNESS[value];
+        if (l === undefined) return null;
+        return `hsl(${getHueForProperty(name)}, ${LEVEL_SATURATION}%, ${l}%)`;
+    }
+
+    // =====================================================================
+    // BEAD + LABEL DRAWING PRIMITIVES
+    // =====================================================================
+
+    // Draw a single level bead at (x,y) for the given property/value.
+    function drawSingleBead(x, y, name, value) {
+        if (getPropertyType(name) === "neutral") {
+            // Neutral: white bead with a letter. Runtime-added neutral properties
+            // may lack a letter mapping -> fall back to the level digit.
+            const mapping = letterMapping[name];
+            const letter = (mapping && mapping[value] !== undefined) ? mapping[value] : value;
+            if (letter) {
+                ctx.fillStyle = "#ffffff";
+                ctx.beginPath();
+                ctx.arc(x, y, dotRadius, 0, 2 * Math.PI);
+                ctx.fill();
+                ctx.strokeStyle = "#605a5a";
+                ctx.lineWidth = lineWidth;
+                ctx.beginPath();
+                ctx.arc(x, y, dotRadius, 0, 2 * Math.PI);
+                ctx.stroke();
+                ctx.fillStyle = "#605a5a";
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.font = 'bold 10px Helvetica, Arial, sans-serif';
+                ctx.fillText(letter, x, y);
+            }
+        } else {
+            const color = getColorForValue(name, value);
+            if (color) {
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(x, y, dotRadius, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+        }
+    }
+
+    // Position of sub-beads for a value; single value -> one point at `angle`,
+    // compound "0,2" -> two points straddling the feature line. Returns array of
+    // {value, angle}. Used by both bead drawing and label drawing so they agree.
+    function beadPlacements(angle, radius, value) {
+        if (value.includes(',')) {
+            const parts = value.split(',').map(v => v.trim());
+            const alpha = Math.asin(dotRadius / radius);
+            return parts.map((v, k) => ({ value: v, angle: angle + (k === 0 ? -alpha : alpha) }));
+        }
+        return [{ value, angle }];
+    }
+
+    // Draw one or two beads (compound values -> two side-by-side).
+    // `filter`: if non-null, only sub-beads whose value === filter are drawn.
+    function drawBead(angle, radius, name, value, filter) {
+        for (const p of beadPlacements(angle, radius, value)) {
+            if (filter !== null && filter !== undefined && p.value !== filter) continue;
+            const x = centerX + radius * Math.cos(p.angle);
+            const y = centerY + radius * Math.sin(p.angle);
+            drawSingleBead(x, y, name, p.value);
+        }
+    }
+
+    // Level label tangent to a bead. `side`: +1 = CCW (default), -1 = CW.
+    function drawSingleBeadValueLabel(angle, radius, name, value, side) {
+        const s = (side === -1) ? -1 : 1;
+        const label = getLevelLabel(name, value);
+        const dotX = centerX + radius * Math.cos(angle);
+        const dotY = centerY + radius * Math.sin(angle);
+        const tangentAngle = angle - s * Math.PI / 2;
+        const flip = Math.cos(tangentAngle) < 0;
+        ctx.save();
+        ctx.translate(dotX, dotY);
+        if (flip) { ctx.rotate(angle + s * Math.PI / 2); ctx.textAlign = 'right'; }
+        else      { ctx.rotate(angle - s * Math.PI / 2); ctx.textAlign = 'left'; }
+        ctx.textBaseline = 'middle';
+        ctx.font = '12px Helvetica, Arial, sans-serif';
+        ctx.fillStyle = '#1d1d1b';
+        const offset = dotRadius + textPadding;
+        ctx.fillText(label, flip ? -offset : offset, 0);
+        ctx.restore();
+    }
+
+    // Label each sub-bead of a value. Compound sub-beads get labelled on the SAME
+    // side of the feature line as their bead (first -> CCW, second -> CW) so the
+    // second label doesn't cross the line.
+    function drawBeadValueLabel(angle, radius, name, value) {
+        if (value.includes(',')) {
+            const parts = value.split(',').map(v => v.trim());
+            const alpha = Math.asin(dotRadius / radius);
+            parts.forEach((v, k) => {
+                const offsetAngle = angle + (k === 0 ? -alpha : alpha);
+                drawSingleBeadValueLabel(offsetAngle, radius, name, v, (k === 0) ? 1 : -1);
+            });
+        } else {
+            drawSingleBeadValueLabel(angle, radius, name, value, 1);
+        }
+    }
+
+    // =====================================================================
+    // PROPERTY-ROW (legend) LAYOUT + DRAW
+    // Columns must align vertically across rows; precompute fixed x-positions.
+    // =====================================================================
+    const LEVEL_LINE_SEGMENT = 16;
+    const LEVEL_GROUP_PAD = textPadding;
+    function computeLevelColumns(lineEndX) {
+        ctx.font = '12px Helvetica, Arial, sans-serif';
+        let maxPropWidth = 0;
+        for (const p of properties) {
+            maxPropWidth = Math.max(maxPropWidth, ctx.measureText(getDisplayName(p)).width);
+        }
+        const maxLabelWidth = [0, 0, 0];
+        for (const p of properties) {
+            for (let v = 0; v < 3; v++) {
+                maxLabelWidth[v] = Math.max(maxLabelWidth[v], ctx.measureText(getLevelLabel(p, String(v))).width);
+            }
+        }
+        const propTextEndCol = lineEndX + textPadding + maxPropWidth + textPadding;
+        const cols = [];
+        let cursor = propTextEndCol;
+        for (let v = 0; v < 3; v++) {
+            const gapStart = cursor + LEVEL_LINE_SEGMENT;
+            const circleX = gapStart + LEVEL_GROUP_PAD + dotRadius;
+            const labelX = circleX + dotRadius + textPadding;
+            const gapEnd = labelX + maxLabelWidth[v] + LEVEL_GROUP_PAD;
+            cols.push({ gapStart, circleX, labelX, gapEnd });
+            cursor = gapEnd;
+        }
+        return cols;
+    }
+
+    // Per-row level legend info: for each level, the column + this row's actual
+    // label + where this row's line gap ends (sized to THIS row's label width).
+    function rowLevelInfo(name, levelCols) {
+        const info = [];
+        for (let v = 0; v < levelCols.length; v++) {
+            const col = levelCols[v];
+            const valueStr = String(v);
+            const label = getLevelLabel(name, valueStr);
+            const labelWidth = ctx.measureText(label).width;
+            const rowGapEnd = col.labelX + labelWidth + LEVEL_GROUP_PAD;
+            info.push({ col, valueStr, label, labelWidth, rowGapEnd });
+        }
+        return info;
+    }
+
+    // Draw one property row: horizontal property line (segmented around the name
+    // and each level group), the level beads + labels, and the property name.
+    // Used by both the base grid and the hover overlay (bold=true for hover).
+    // Registers hit-test entries only when register=true (base grid pass).
+    function drawPropertyRow(idx, g, levelCols, opts) {
+        opts = opts || {};
+        const bold = !!opts.bold;
+        const register = !!opts.register;
+        // part: undefined -> everything (default, byte-identical to original);
+        //       'names'    -> connector lines + property name, no beads/labels;
+        //       'levels'   -> level beads + labels only;
+        //       'levelgaps'-> ONLY the line segments that pass through the level
+        //                     columns (the pieces that make the row line "solid").
+        //                     Layered at a fading alpha so the line appears to
+        //                     open up as the level text/beads fade in.
+        const part = opts.part;
+        const doNames = (part === undefined || part === 'names');
+        const doLevels = (part === undefined || part === 'levels');
+        const doLevelGaps = (part === 'levelgaps');
+        const name = properties[idx];
+        const display = getDisplayName(name);
+        const y = centerY - (innerRadius + idx * circleSpacing);
+        const textAnchorX = g.textAnchorX;
+        const textX = textAnchorX + textPadding;
+
+        ctx.font = '12px Helvetica, Arial, sans-serif';
+        const textWidth = ctx.measureText(display).width;
+        const info = rowLevelInfo(name, levelCols);
+
+        if (doLevelGaps) {
+            ctx.strokeStyle = '#1d1d1b';
+            ctx.lineWidth = lineWidth;
+            for (const li of info) {
+                ctx.beginPath();
+                ctx.moveTo(li.col.gapStart, y);
+                ctx.lineTo(li.rowGapEnd, y);
+                ctx.stroke();
+            }
+            return;
+        }
+
+        if (register && doNames) {
+            textElements.push({ type: 'characteristic', index: idx, x: textX, y: y, angle: 0, width: textWidth, height: 12 });
+        }
+
+        if (doNames) {
+            // Left stub for grouped rows.
+            ctx.strokeStyle = '#1d1d1b';
+            ctx.lineWidth = lineWidth;
+            if (groupForIndex(idx)) {
+                ctx.beginPath();
+                ctx.moveTo(textAnchorX - textPadding, y);
+                ctx.lineTo(textAnchorX, y);
+                ctx.stroke();
+            }
+            ctx.beginPath(); ctx.moveTo(textAnchorX, y); ctx.lineTo(textX - textPadding, y); ctx.stroke();
+            // Always draw the interrupted line (gaps at each level column). The
+            // gaps are optionally filled by a separate 'levelgaps' pass that fades
+            // out as the levels fade in.
+            ctx.beginPath(); ctx.moveTo(textX + textWidth + textPadding, y); ctx.lineTo(info[0].col.gapStart, y); ctx.stroke();
+            for (let v = 0; v < info.length - 1; v++) {
+                ctx.beginPath(); ctx.moveTo(info[v].rowGapEnd, y); ctx.lineTo(info[v + 1].col.gapStart, y); ctx.stroke();
+            }
+            ctx.beginPath(); ctx.moveTo(info[info.length - 1].rowGapEnd, y); ctx.lineTo(centerX, y); ctx.stroke();
+        }
+
+        if (doLevels) {
+            // Level legend beads + labels.
+            for (const li of info) {
+                drawSingleBead(li.col.circleX, y, name, li.valueStr);
+                ctx.font = '12px Helvetica, Arial, sans-serif';
+                ctx.fillStyle = '#1d1d1b';
+                ctx.textAlign = 'left';
+                ctx.fillText(li.label, li.col.labelX, y);
+                if (register) {
+                    textElements.push({ type: 'level', index: idx, value: li.valueStr, x: li.col.gapStart, y: y, angle: 0, width: li.rowGapEnd - li.col.gapStart, height: 12 });
+                }
+            }
+        }
+
+        if (doNames) {
+            // Property name. On the base pass, skip the row currently highlighted
+            // (the overlay draws it bold instead) to avoid bold/regular overlap.
+            const skip = !bold && (hoveredProperty === idx);
+            if (!skip) {
+                ctx.save();
+                ctx.translate(textX, y);
+                ctx.textAlign = 'left';
+                ctx.font = (bold ? 'bold ' : '') + '12px Helvetica, Arial, sans-serif';
+                ctx.fillStyle = '#1d1d1b';
+                ctx.fillText(display, 0, 0);
+                ctx.restore();
+            }
+        }
+    }
+
+    // Draw a group's connector (vertical line joining its rows' left stubs) and
+    // its label. bold=true for the hover/focus overlay. register=true adds the
+    // label hit box (base pass only).
+    function drawGroupConnector(g, geo, opts) {
+        opts = opts || {};
+        const bold = !!opts.bold;
+        const register = !!opts.register;
+        const idxs = groupIndices(g);
+        if (idxs.length === 0) return;
+        const groupVertX = geo.textAnchorX - textPadding;
+        const yTop = centerY - (innerRadius + idxs[0] * circleSpacing);
+        const yBot = centerY - (innerRadius + idxs[idxs.length - 1] * circleSpacing);
+        ctx.strokeStyle = '#1d1d1b';
+        ctx.lineWidth = lineWidth;
+        ctx.beginPath();
+        ctx.moveTo(groupVertX, yTop);
+        ctx.lineTo(groupVertX, yBot);
+        ctx.stroke();
+        const yMid = (yTop + yBot) / 2;
+        ctx.save();
+        ctx.font = (bold ? 'bold ' : '') + '12px Helvetica, Arial, sans-serif';
+        ctx.fillStyle = '#1d1d1b';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(g.name, groupVertX - textPadding, yMid);
+        ctx.restore();
+        if (register) {
+            const labelWidth = ctx.measureText(g.name).width;
+            textElements.push({ type: 'group', groupName: g.name, x: groupVertX - textPadding - labelWidth, y: yMid, angle: 0, width: labelWidth, height: 12 });
+        }
+    }
+
+    // Redraw all property names at full opacity (used during feature hover so the
+    // top-left property column stays readable while everything else fades). Level
+    // legend texts intentionally fade with the rest.
+    function drawAllPropertyNamesFullAlpha(geo) {
+        const textX = geo.textAnchorX + textPadding;
+        ctx.font = '12px Helvetica, Arial, sans-serif';
+        ctx.fillStyle = '#1d1d1b';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        for (let i = 0; i < properties.length; i++) {
+            if (hoveredProperty === i) continue;
+            const y = centerY - (innerRadius + i * circleSpacing);
+            ctx.fillText(getDisplayName(properties[i]), textX, y);
+        }
+    }
+
+    // Redraw all feature names at full opacity (used during property/level hover).
+    // The hovered feature is skipped; `filter` (optional) limits to matching ones.
+    function drawAllFeatureNamesFullAlpha(geo, filter) {
+        ctx.font = '12px Helvetica, Arial, sans-serif';
+        ctx.fillStyle = '#1d1d1b';
+        ctx.textBaseline = 'middle';
+        for (const cat of FEATURE_CATEGORIES) {
+            const arr = cat.arr();
+            const textRadius = categoryTextRadius(cat.type, geo);
+            for (let i = 0; i < arr.length; i++) {
+                if (hoveredFeature && hoveredFeature.type === cat.type && hoveredFeature.index === i) continue;
+                if (filter && !filter(arr[i])) continue;
+                const angle = featureAngle(cat.type, i, geo);
+                const textStartRadius = textRadius + textPadding;
+                const textX = centerX + textStartRadius * Math.cos(angle);
+                const textY = centerY + textStartRadius * Math.sin(angle);
+                ctx.save();
+                ctx.translate(textX, textY);
+                applyRadialTextOrientation(angle);
+                ctx.fillText(arr[i].name, 0, 0);
+                ctx.restore();
+            }
+        }
+    }
+
+    // =====================================================================
+    // DRAW: BASE GRID  (decomposed into independently-callable sub-draws so the
+    // intro animation can render subsets at independent alpha / progress. The
+    // full-render entry drawBaseGrid() calls them in the original order at full
+    // opacity, so normal output is byte-identical to the monolithic version.)
+    //
+    // Alpha convention: each sub-draw takes an optional `a`. a === 1 (default)
+    // means "do not touch globalAlpha" — this reproduces the pre-refactor call
+    // log exactly. Any a !== 1 wraps the sub-draw in a save/globalAlpha/restore.
+    // =====================================================================
+
+    // Wrap a drawing thunk in an alpha layer only when a !== 1 (keeps the
+    // full-render op sequence identical to the original monolith).
+    function withAlpha(a, thunk) {
+        if (a === 1) { thunk(); return; }
+        const prev = ctx.globalAlpha;
+        ctx.globalAlpha = prev * a;
+        thunk();
+        ctx.globalAlpha = prev;
+    }
+
+    // (1) Coloured category zones.
+    function drawCategoryZones(g, a) {
+        a = (a === undefined) ? 1 : a;
+        withAlpha(a, () => {
+            function drawAnnularSector(r1, r2, startA, endA, fill) {
+                ctx.fillStyle = fill;
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, r1, startA, endA);
+                ctx.arc(centerX, centerY, r2, endA, startA, true);
+                ctx.closePath();
+                ctx.fill();
+            }
+            drawAnnularSector(g.veryInnerR, g.innerCircle1R, g.sector1StartAngle, g.sector1EndAngle, '#f4f4f4');
+            drawAnnularSector(g.innerCircle1R, g.outermostInnerR, g.sector1StartAngle, g.sector1EndAngle, '#f4f4f4');
+            drawAnnularSector(g.innerCircle2R, g.outermostInnerR, g.sector2StartAngle, g.sector2EndAngle, '#ececec');
+            drawAnnularSector(g.innerCircle1R, g.outermostInnerR, g.sector3StartAngle, g.sector3EndAngle, '#e4e4e4');
+        });
+    }
+
+    // (2) Feature radial lines. `grow` in (0,1] shortens each line from its
+    // start toward the edge (both segments), for the phase-5 expand effect.
+    // grow === 1 draws the full two-segment line (with the name gap).
+    // `filter(cat.type, i)` optionally restricts which features are drawn.
+    function drawFeatureLines(g, a, grow, filter) {
+        a = (a === undefined) ? 1 : a;
+        grow = (grow === undefined) ? 1 : grow;
+        withAlpha(a, () => {
+            ctx.strokeStyle = '#1d1d1b';
+            ctx.lineWidth = lineWidth;
+            for (const cat of FEATURE_CATEGORIES) {
+                const arr = cat.arr();
+                const textRadius = categoryTextRadius(cat.type, g);
+                const startRadius = textRadius;
+                for (let i = 0; i < arr.length; i++) {
+                    if (filter && !filter(cat.type, i)) continue;
+                    const angle = featureAngle(cat.type, i, g);
+                    const text = arr[i].name;
+                    const textWidth = ctx.measureText(text).width;
+                    const textStartRadius = textRadius + textPadding;
+                    const textEndRadius = textStartRadius + textWidth + textPadding + 3;
+                    // Full extent of the drawn line (start -> edge). We grow the
+                    // visible tip along this radius while keeping the name gap.
+                    const tip = grow >= 1 ? g.extendedRadius
+                        : startRadius + (g.extendedRadius - startRadius) * grow;
+
+                    // Inner segment: startRadius -> textStartRadius (clipped to tip).
+                    const innerEnd = Math.min(textStartRadius, tip);
+                    if (innerEnd > startRadius) {
+                        ctx.beginPath();
+                        ctx.moveTo(centerX + startRadius * Math.cos(angle), centerY + startRadius * Math.sin(angle));
+                        ctx.lineTo(centerX + innerEnd * Math.cos(angle), centerY + innerEnd * Math.sin(angle));
+                        ctx.stroke();
+                    }
+                    // Outer segment: textEndRadius -> extendedRadius (clipped to tip).
+                    if (tip > textEndRadius) {
+                        ctx.beginPath();
+                        ctx.moveTo(centerX + textEndRadius * Math.cos(angle), centerY + textEndRadius * Math.sin(angle));
+                        ctx.lineTo(centerX + tip * Math.cos(angle), centerY + tip * Math.sin(angle));
+                        ctx.stroke();
+                    }
+                }
+            }
+        });
+    }
+
+    // Feature name labels + hit-box registration. Registration always runs
+    // (independent of alpha) so hit-testing works even mid-intro; only the text
+    // fill honours `a` and `filter`. Split out from lines so phase 5 can stagger
+    // names independently of line growth.
+    function drawFeatureNames(g, a, filter, register) {
+        a = (a === undefined) ? 1 : a;
+        register = (register === undefined) ? true : register;
+        for (const cat of FEATURE_CATEGORIES) {
+            const arr = cat.arr();
+            const textRadius = categoryTextRadius(cat.type, g);
+            for (let i = 0; i < arr.length; i++) {
+                const angle = featureAngle(cat.type, i, g);
+                const text = arr[i].name;
+                const textWidth = ctx.measureText(text).width;
+                const textStartRadius = textRadius + textPadding;
+                const textX = centerX + textStartRadius * Math.cos(angle);
+                const textY = centerY + textStartRadius * Math.sin(angle);
+                if (register) {
+                    textElements.push({ type: cat.type, index: i, x: textX, y: textY, angle: angle, width: textWidth, height: 12, textStartRadius: textStartRadius });
+                }
+                if (filter && !filter(cat.type, i)) continue;
+                if (hoveredFeature && hoveredFeature.type === cat.type && hoveredFeature.index === i) continue;
+                withAlpha(a, () => {
+                    ctx.save();
+                    ctx.translate(textX, textY);
+                    applyRadialTextOrientation(angle);
+                    ctx.font = '12px Helvetica, Arial, sans-serif';
+                    ctx.fillStyle = '#1d1d1b';
+                    ctx.fillText(text, 0, 0);
+                    ctx.restore();
+                });
+            }
+        }
+    }
+
+    // (3) Property ring arcs. `sweep` in (0,1] draws each arc only partway from
+    // its start angle, for the phase-3 loading-buffer effect. sweep === 1 draws
+    // the full arc, identical to the original.
+    function drawPropertyRings(g, a, sweep) {
+        a = (a === undefined) ? 1 : a;
+        sweep = (sweep === undefined) ? 1 : sweep;
+        withAlpha(a, () => {
+            if (a !== 1) { ctx.strokeStyle = '#1d1d1b'; ctx.lineWidth = lineWidth; }
+            const a0 = g.sector1StartAngle;
+            const a1 = g.sector3EndAngle;
+            const end = sweep >= 1 ? a1 : a0 + (a1 - a0) * sweep;
+            for (let i = 0; i < properties.length; i++) {
+                if (end <= a0) break;
+                const radius = innerRadius + i * circleSpacing;
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius, a0, end);
+                ctx.stroke();
+            }
+        });
+    }
+
+    // (4) Legend: property names + horizontal connector lines + group stubs +
+    // group vertical connectors + labels. Excludes the level beads/labels
+    // (those are drawLegendLevels). This is phase 2's content.
+    function drawLegendNamesAndConnectors(g, levelCols, a) {
+        a = (a === undefined) ? 1 : a;
+        withAlpha(a, () => {
+            for (let i = 0; i < properties.length; i++) {
+                drawPropertyRow(i, g, levelCols, { register: true, part: 'names' });
+            }
+            for (const grp of propertyGroups) {
+                if (hoveredGroup && hoveredGroup.name === grp.name) {
+                    const idxs = groupIndices(grp);
+                    if (idxs.length) {
+                        const groupVertX = g.textAnchorX - textPadding;
+                        const yTop = centerY - (innerRadius + idxs[0] * circleSpacing);
+                        const yBot = centerY - (innerRadius + idxs[idxs.length - 1] * circleSpacing);
+                        ctx.beginPath(); ctx.moveTo(groupVertX, yTop); ctx.lineTo(groupVertX, yBot); ctx.stroke();
+                        const yMid = (yTop + yBot) / 2;
+                        ctx.font = '12px Helvetica, Arial, sans-serif';
+                        const labelWidth = ctx.measureText(grp.name).width;
+                        textElements.push({ type: 'group', groupName: grp.name, x: groupVertX - textPadding - labelWidth, y: yMid, angle: 0, width: labelWidth, height: 12 });
+                    }
+                } else {
+                    drawGroupConnector(grp, g, { register: true });
+                }
+            }
+        });
+    }
+
+    // (5) Legend level beads + labels only. This is phase 4's content.
+    function drawLegendLevels(g, levelCols, a) {
+        a = (a === undefined) ? 1 : a;
+        withAlpha(a, () => {
+            for (let i = 0; i < properties.length; i++) {
+                drawPropertyRow(i, g, levelCols, { register: true, part: 'levels' });
+            }
+        });
+    }
+
+    // The line segments that pass THROUGH the level columns — i.e. the pieces
+    // that would make each row line solid. Drawn at a fading alpha during the
+    // intro so the row lines appear to "open up" as the level text fades in.
+    function drawLegendLevelGaps(g, levelCols, a) {
+        a = (a === undefined) ? 1 : a;
+        withAlpha(a, () => {
+            for (let i = 0; i < properties.length; i++) {
+                drawPropertyRow(i, g, levelCols, { part: 'levelgaps' });
+            }
+        });
+    }
+
+    // (6) Inner category arcs. `sweep` in (0,1] reveals them clockwise across the
+    // whole angular span (sector1 start -> sector3 end), so the three arcs load in
+    // sequence in sync with the feature sweep. sweep === 1 draws them fully.
+    function drawInnerArcs(g, a, sweep) {
+        a = (a === undefined) ? 1 : a;
+        sweep = (sweep === undefined) ? 1 : sweep;
+        withAlpha(a, () => {
+            if (a !== 1) { ctx.strokeStyle = '#1d1d1b'; ctx.lineWidth = lineWidth; }
+            const spanStart = g.sector1StartAngle;
+            const spanEnd = g.sector3EndAngle;
+            const head = sweep >= 1 ? spanEnd : spanStart + (spanEnd - spanStart) * sweep;
+            const arcs = [
+                { r: g.veryInnerR,     a0: g.sector1StartAngle, a1: g.sector1EndAngle },
+                { r: g.innerCircle2R,  a0: g.sector2StartAngle, a1: g.sector2EndAngle },
+                { r: g.innerCircle1R,  a0: g.sector3StartAngle, a1: g.sector3EndAngle },
+            ];
+            for (const arc of arcs) {
+                if (head <= arc.a0) continue;
+                const end = Math.min(arc.a1, head);
+                ctx.beginPath(); ctx.arc(centerX, centerY, arc.r, arc.a0, end); ctx.stroke();
+            }
+        });
+    }
+
+    // (7) On-diagram level beads at every filled crossing.
+    function drawCrossingBeads(g, a) {
+        a = (a === undefined) ? 1 : a;
+        withAlpha(a, () => {
+            const ringRadii = Array.from({ length: properties.length }, (_, i) => innerRadius + i * circleSpacing);
+            for (const cat of FEATURE_CATEGORIES) {
+                const arr = cat.arr();
+                for (let i = 0; i < arr.length; i++) {
+                    const angle = featureAngle(cat.type, i, g);
+                    for (let j = 0; j < ringRadii.length; j++) {
+                        const value = arr[i].values[properties[j]];
+                        if (value) drawBead(angle, ringRadii[j], properties[j], value, null);
+                    }
+                }
+            }
+        });
+    }
+
+    // Full render: identical order + full opacity => byte-identical to the
+    // pre-refactor monolith.
+    function drawBaseGrid() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const g = geometry();
+
+        textElements.length = 0;
+
+        ctx.fillStyle = '#1d1d1b';
+        ctx.strokeStyle = '#1d1d1b';
+        ctx.lineWidth = lineWidth;
+        ctx.font = '12px Helvetica, Arial, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+
+        drawCategoryZones(g, 1);
+
+        ctx.fillStyle = '#1d1d1b';
+        ctx.strokeStyle = '#1d1d1b';
+        ctx.lineWidth = lineWidth;
+
+        // Feature lines then names, interleaved per-feature in the original —
+        // reproduced here by drawing all lines-with-their-name inline. To keep
+        // the op order identical we walk features once, emitting line then name.
+        drawFeatureLinesAndNames(g, 1);
+
+        drawPropertyRings(g, 1);
+
+        const levelCols = computeLevelColumns(g.textAnchorX);
+        for (let i = 0; i < properties.length; i++) {
+            drawPropertyRow(i, g, levelCols, { register: true });
+        }
+
+        for (const grp of propertyGroups) {
+            if (hoveredGroup && hoveredGroup.name === grp.name) {
+                const idxs = groupIndices(grp);
+                if (idxs.length) {
+                    const groupVertX = g.textAnchorX - textPadding;
+                    const yTop = centerY - (innerRadius + idxs[0] * circleSpacing);
+                    const yBot = centerY - (innerRadius + idxs[idxs.length - 1] * circleSpacing);
+                    ctx.beginPath(); ctx.moveTo(groupVertX, yTop); ctx.lineTo(groupVertX, yBot); ctx.stroke();
+                    const yMid = (yTop + yBot) / 2;
+                    ctx.font = '12px Helvetica, Arial, sans-serif';
+                    const labelWidth = ctx.measureText(grp.name).width;
+                    textElements.push({ type: 'group', groupName: grp.name, x: groupVertX - textPadding - labelWidth, y: yMid, angle: 0, width: labelWidth, height: 12 });
+                }
+            } else {
+                drawGroupConnector(grp, g, { register: true });
+            }
+        }
+
+        drawInnerArcs(g, 1);
+        drawCrossingBeads(g, 1);
+    }
+
+    // Original per-feature interleave: line (two segments) then name, feature by
+    // feature. Used only by the full-render path to preserve the exact op order.
+    // The intro path uses drawFeatureLines + drawFeatureNames separately instead.
+    function drawFeatureLinesAndNames(g, a) {
+        a = (a === undefined) ? 1 : a;
+        withAlpha(a, () => {
+            for (const cat of FEATURE_CATEGORIES) {
+                const arr = cat.arr();
+                const textRadius = categoryTextRadius(cat.type, g);
+                const startRadius = textRadius;
+                for (let i = 0; i < arr.length; i++) {
+                    const angle = featureAngle(cat.type, i, g);
+                    const text = arr[i].name;
+                    const textWidth = ctx.measureText(text).width;
+                    const textStartRadius = textRadius + textPadding;
+                    const textEndRadius = textStartRadius + textWidth + textPadding + 3;
+
+                    ctx.beginPath();
+                    ctx.moveTo(centerX + startRadius * Math.cos(angle), centerY + startRadius * Math.sin(angle));
+                    ctx.lineTo(centerX + textStartRadius * Math.cos(angle), centerY + textStartRadius * Math.sin(angle));
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.moveTo(centerX + textEndRadius * Math.cos(angle), centerY + textEndRadius * Math.sin(angle));
+                    ctx.lineTo(centerX + g.extendedRadius * Math.cos(angle), centerY + g.extendedRadius * Math.sin(angle));
+                    ctx.stroke();
+
+                    const textX = centerX + textStartRadius * Math.cos(angle);
+                    const textY = centerY + textStartRadius * Math.sin(angle);
+                    textElements.push({ type: cat.type, index: i, x: textX, y: textY, angle: angle, width: textWidth, height: 12, textStartRadius: textStartRadius });
+
+                    ctx.save();
+                    ctx.translate(textX, textY);
+                    applyRadialTextOrientation(angle);
+                    ctx.font = '12px Helvetica, Arial, sans-serif';
+                    ctx.fillStyle = '#1d1d1b';
+                    if (!(hoveredFeature && hoveredFeature.type === cat.type && hoveredFeature.index === i)) {
+                        ctx.fillText(text, 0, 0);
+                    }
+                    ctx.restore();
+                }
+            }
+        });
+    }
+
+    // =====================================================================
+    // DRAW: HOVER OVERLAY (full opacity, on top of the dimmed base grid)
+    // =====================================================================
+    function drawHoverEffects() {
+        if (!hoveredFeature && hoveredProperty === null && !hoveredGroup) return;
+        // Filled-crossing focus uses a minimal presentation handled elsewhere.
+        if (focusedCrossing) return;
+
+        const g = geometry();
+        const ringRadii = Array.from({ length: properties.length }, (_, i) => innerRadius + i * circleSpacing);
+
+        // --- Hovered feature: redraw its line, name (bold), beads + level labels ---
+        if (hoveredFeature) {
+            drawAllPropertyNamesFullAlpha(g);
+            const cat = hoveredFeature.type;
+            const arr = categoryArray(cat);
+            const item = arr[hoveredFeature.index];
+            if (item) {
+                const angle = featureAngle(cat, hoveredFeature.index, g);
+                const textRadius = categoryTextRadius(cat, g);
+                const text = item.name;
+                const textWidth = ctx.measureText(text).width;
+                const textStartRadius = textRadius + textPadding;
+                const textEndRadius = textStartRadius + textWidth + textPadding + 3;
+
+                ctx.beginPath();
+                ctx.moveTo(centerX + textRadius * Math.cos(angle), centerY + textRadius * Math.sin(angle));
+                ctx.lineTo(centerX + textStartRadius * Math.cos(angle), centerY + textStartRadius * Math.sin(angle));
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(centerX + textEndRadius * Math.cos(angle), centerY + textEndRadius * Math.sin(angle));
+                ctx.lineTo(centerX + g.extendedRadius * Math.cos(angle), centerY + g.extendedRadius * Math.sin(angle));
+                ctx.stroke();
+
+                const textX = centerX + textStartRadius * Math.cos(angle);
+                const textY = centerY + textStartRadius * Math.sin(angle);
+                ctx.save();
+                ctx.translate(textX, textY);
+                applyRadialTextOrientation(angle);
+                ctx.font = 'bold 12px Helvetica, Arial, sans-serif';
+                ctx.fillStyle = '#1d1d1b';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(text, 0, 0);
+                ctx.restore();
+
+                for (let j = 0; j < ringRadii.length; j++) {
+                    const value = item.values[properties[j]];
+                    if (value) {
+                        drawBead(angle, ringRadii[j], properties[j], value, null);
+                        ctx.save();
+                        ctx.globalAlpha = mainFade.value;
+                        drawBeadValueLabel(angle, ringRadii[j], properties[j], value);
+                        ctx.restore();
+                    }
+                }
+            }
+        }
+
+        // --- Which property rings to highlight, and whether names are filtered ---
+        //   group hover     -> every present ring in the group, names unfiltered
+        //   level hover      -> the one ring, names filtered to matching features
+        //   property hover  -> the one ring, names unfiltered
+        let highlightIdxs = null;
+        let namesFilter = null;
+        if (hoveredGroup && hoveredProperty === null) {
+            highlightIdxs = groupIndices(hoveredGroup);
+        } else if (hoveredProperty !== null) {
+            highlightIdxs = [hoveredProperty];
+            if (hoveredLevelValue !== null) {
+                const ch = properties[hoveredProperty];
+                namesFilter = (feature) => featureMatchesLevel(feature, ch, hoveredLevelValue);
+            }
+        }
+
+        if (highlightIdxs && highlightIdxs.length > 0) {
+            drawAllFeatureNamesFullAlpha(g, namesFilter);
+            const levelCols = computeLevelColumns(g.textAnchorX);
+
+            for (const idx of highlightIdxs) {
+                const name = properties[idx];
+                const filter = (highlightIdxs.length === 1) ? hoveredLevelValue : null;
+                const charRadius = innerRadius + idx * circleSpacing;
+
+                // Row (bold name + full-opacity line/legend).
+                drawPropertyRow(idx, g, levelCols, { bold: true });
+
+                // Ring.
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, charRadius, g.sector1StartAngle, g.sector3EndAngle);
+                ctx.stroke();
+
+                // Beads across all features on this ring.
+                for (const cat of FEATURE_CATEGORIES) {
+                    const arr = cat.arr();
+                    for (let i = 0; i < arr.length; i++) {
+                        const value = arr[i].values[name];
+                        if (value) drawBead(featureAngle(cat.type, i, g), charRadius, name, value, filter);
+                    }
+                }
+            }
+
+            if (hoveredGroup) drawGroupConnector(hoveredGroup, g, { bold: true });
+        }
+    }
+
+    // =====================================================================
+    // DRAW: FOCUSED CROSSING (filled bead focus)
+    // Only the focused bead, its tangent level label, the feature name, and the
+    // property name (+ its group label) stay at full opacity. No ring/line redraw.
+    // =====================================================================
+    function drawFocusedCrossing() {
+        if (!focusedCrossing) return;
+        const fi = focusedCrossing;
+        const g = geometry();
+        const innerR = categoryTextRadius(fi.type, g);
+
+        ctx.globalAlpha = 1;
+
+        // Feature name.
+        ctx.font = '12px Helvetica, Arial, sans-serif';
+        ctx.fillStyle = '#1d1d1b';
+        ctx.textBaseline = 'middle';
+        const textStartRadius = innerR + textPadding;
+        const fTextX = centerX + textStartRadius * Math.cos(fi.angle);
+        const fTextY = centerY + textStartRadius * Math.sin(fi.angle);
+        ctx.save();
+        ctx.translate(fTextX, fTextY);
+        applyRadialTextOrientation(fi.angle);
+        ctx.fillText(fi.featureName, 0, 0);
+        ctx.restore();
+
+        // Property name.
+        const yProp = centerY - (innerRadius + fi.propertyIndex * circleSpacing);
+        ctx.textAlign = 'left';
+        ctx.fillText(getDisplayName(fi.propertyName), g.textAnchorX + textPadding, yProp);
+
+        // The focused bead + its level label.
+        drawBead(fi.angle, fi.radius, fi.propertyName, fi.value, null);
+        drawBeadValueLabel(fi.angle, fi.radius, fi.propertyName, fi.value);
+
+        // The property's group (bold + connector).
+        const fGroup = groupForProperty(fi.propertyName);
+        if (fGroup) drawGroupConnector(fGroup, g, { bold: true });
+    }
+
+    // =====================================================================
+    // DRAW: LONG-PRESS PROGRESS ARC
+    // =====================================================================
+    function drawLongPressProgress() {
+        if (!longPressTimer || !focusedCrossing || !longPressStartTime) return;
+        const elapsed = performance.now() - longPressStartTime;
+        const progress = Math.min(elapsed / LONG_PRESS_MS, 1);
+        if (progress <= 0) return;
+        const fi = focusedCrossing;
+        const r = dotRadius + 5;
+        ctx.save();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = '#605a5a';
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.arc(fi.x, fi.y, r, -Math.PI / 2, -Math.PI / 2 + progress * 2 * Math.PI);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // =====================================================================
+    // DRAW: COMPOSITE
+    // =====================================================================
+    function drawGrid() {
+        // Base grid dimmed by mainFade: value 0 -> alpha 1.00; value 1 -> alpha 0.24.
+        ctx.globalAlpha = 1 - mainFade.value * 0.76;
+        drawBaseGrid();
+        ctx.globalAlpha = 1;
+
+        drawHoverEffects();
+        drawFocusedCrossing();
+        drawLongPressProgress();
+
+        // Empty-crossing placeholder bead (its own fade).
+        if (hoveredCrossing && !hoveredCrossing.hasValue && intersectionFade.value > 0) {
+            ctx.globalAlpha = intersectionFade.value;
+            ctx.fillStyle = "#ffffff";
+            ctx.beginPath();
+            ctx.arc(hoveredCrossing.x, hoveredCrossing.y, dotRadius, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.strokeStyle = "#605a5a";
+            ctx.lineWidth = lineWidth;
+            ctx.beginPath();
+            ctx.arc(hoveredCrossing.x, hoveredCrossing.y, dotRadius, 0, 2 * Math.PI);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+        }
+
+        positionUIElements();
+    }
+
+    // =====================================================================
+    // INTRO ANIMATION (first load per session + after whole-abacus reset)
+    // Timed sequence driven by one rAF loop. Phases (absolute seconds):
+    //   P1 0.0–2.0  title typed letter-by-letter (blinking underscore), grid blank
+    //   P2 2.0–2.5  legend property names + connectors + group stubs/verticals fade
+    //   P3 2.5–3.5  property ring arcs sweep on (linear, loading-buffer)
+    //   P4 3.7–4.5  legend level beads + labels fade (0.2s gap after P3)
+    //   P5 4.5–5.2  feature names appear (all within 0.2s), each line grows 0.5s
+    //               from the moment its name appears
+    //   P6 5.2–5.7  remaining elements fade: category zones, inner arcs, crossing beads
+    // All non-title elements fade in; title is typed. Fades use easeInOutQuad;
+    // the P3 sweep is linear. Input is disabled while introState.active.
+    // Honors prefers-reduced-motion: jumps straight to the final frame.
+    // =====================================================================
+    const INTRO = {
+        titleText: 'Abacus',
+        P1_END: 2000,
+        P2_START: 2000, P2_END: 2500,
+        P3_START: 2500, P3_END: 3500,
+        P4_START: 3700, P4_END: 4500,
+        // Feature names + lines now begin together with the legend fade-in
+        // (P2_START), running concurrently with P2–P4 rather than after them.
+        P5_START: 2000, P5_NAME_FADE: 100, P5_STAGGER: 100, P5_GROW: 500,
+        // Phase 5 length depends on the feature count N: names appear one at a
+        // time (P5_STAGGER apart, each fading over P5_NAME_FADE); when a name
+        // finishes, its line grows over P5_GROW. The last line finishes at
+        // (N-1)*STAGGER + NAME_FADE + GROW after P5_START. introSetP5End(N)
+        // stores that so P6 can follow. Defaults to a 1-feature span until set.
+        _p5EndOffset: 100 + 500,
+        get P5_END() { return this.P5_START + this._p5EndOffset; },
+        // P6 (the remaining fills) only starts once BOTH the legend levels (P4)
+        // and the feature name/line pipeline (P5) have finished.
+        get P6_START() { return Math.max(this.P4_END, this.P5_END); },
+        P6_DUR: 500,
+        get P6_END() { return this.P6_START + this.P6_DUR; },
+        UNDERSCORE_MS: 250,
+    };
+    // Recompute the P5 span from the actual feature count (called at intro start).
+    function introSetP5End(n) {
+        const last = Math.max(0, n - 1);
+        INTRO._p5EndOffset = last * INTRO.P5_STAGGER + INTRO.P5_NAME_FADE + INTRO.P5_GROW;
+    }
+    const introState = { active: false, startTime: 0, frameId: null, buttonsFading: false };
+
+    function introActive() { return introState.active; }
+
+    // Flat, stable ordering of features for the P5 stagger: category order
+    // (materials, semiProcessed, furniture) then index within each.
+    function introFeatureList(g) {
+        const list = [];
+        for (const cat of FEATURE_CATEGORIES) {
+            const arr = cat.arr();
+            for (let i = 0; i < arr.length; i++) list.push({ type: cat.type, index: i });
+        }
+        return list;
+    }
+
+    function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+
+    function setTitleForIntro(elapsed) {
+        const el = document.getElementById('abacusTitle');
+        if (!el) return;
+        const full = INTRO.titleText;
+        const n = full.length;
+        // Reveal all letters across the first 80% of P1 so the completed word
+        // sits with a blinking cursor for the final stretch (rather than the last
+        // letter landing exactly at the phase boundary). One letter per slice.
+        const typeWindow = INTRO.P1_END * 0.8;
+        const shown = Math.min(n, Math.floor((elapsed / typeWindow) * n) + (elapsed > 0 ? 1 : 0));
+        const shownClamped = Math.max(0, Math.min(n, shown));
+        const typing = elapsed < INTRO.P1_END;
+        // Blinking cursor: visible for the first half of each UNDERSCORE_MS
+        // window, hidden for the second. Hidden = empty string (a clean blink);
+        // the tiny width change is imperceptible for a 1-char cursor.
+        const blinkOn = Math.floor(elapsed / INTRO.UNDERSCORE_MS) % 2 === 0;
+        const cursor = typing ? (blinkOn ? '_' : '') : '';
+        el.textContent = full.slice(0, shownClamped) + cursor;
+    }
+
+    function finishIntroTitle() {
+        const el = document.getElementById('abacusTitle');
+        if (el) el.textContent = INTRO.titleText;
+    }
+
+    function introFrame(now) {
+        // Anchor the clock to the first frame's timestamp so elapsed starts at 0
+        // regardless of any skew between performance.now() and rAF timestamps.
+        if (introState.startTime === 0) introState.startTime = now;
+        const elapsed = now - introState.startTime;
+        const g = geometry();
+        const levelCols = computeLevelColumns(g.textAnchorX);
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#1d1d1b';
+        ctx.strokeStyle = '#1d1d1b';
+        ctx.lineWidth = lineWidth;
+        ctx.font = '12px Helvetica, Arial, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        textElements.length = 0;
+
+        // Title (typed).
+        setTitleForIntro(elapsed);
+
+        // P6 fade fraction (category zones, inner arcs, crossing beads). Zones
+        // are the BACKGROUND, so they must be painted FIRST every frame — drawing
+        // them last (as before) made them briefly cover the lines/text before the
+        // final drawGrid() put them back, an ugly pop. Inner arcs + crossing beads
+        // are foreground and drawn later in the frame at the same alpha.
+        const p6 = easeInOutQuad(clamp01((elapsed - INTRO.P6_START) / INTRO.P6_DUR));
+        if (p6 > 0) drawCategoryZones(g, p6);
+
+        // P4: legend levels fade. Computed early because the legend line style
+        // (solid vs interrupted) depends on whether levels have started to appear.
+        const p4 = easeInOutQuad(clamp01((elapsed - INTRO.P4_START) / (INTRO.P4_END - INTRO.P4_START)));
+
+        // P2: legend names + connectors + groups (line always interrupted at the
+        // level columns). The gaps are filled by a separate layer that fades out
+        // as the levels fade in (below), so the line smoothly "opens up".
+        const p2 = easeInOutQuad(clamp01((elapsed - INTRO.P2_START) / (INTRO.P2_END - INTRO.P2_START)));
+        if (p2 > 0) drawLegendNamesAndConnectors(g, levelCols, p2);
+
+        // Level-gap fill: solid before levels appear, fading out over P4 as the
+        // level beads/labels fade in.
+        if (p2 > 0 && p4 < 1) drawLegendLevelGaps(g, levelCols, p2 * (1 - p4));
+
+        // P3: ring-arc sweep (linear).
+        const p3 = clamp01((elapsed - INTRO.P3_START) / (INTRO.P3_END - INTRO.P3_START));
+        if (p3 > 0) drawPropertyRings(g, 1, p3);
+
+        // P4 draw: legend level beads + labels.
+        if (p4 > 0) drawLegendLevels(g, levelCols, p4);
+
+        // P5: feature names appear one at a time (P5_STAGGER apart, each fading
+        // over P5_NAME_FADE), concurrently with the legend. The instant a name
+        // finishes fading, its line grows over P5_GROW. Name i+1 begins exactly
+        // when name i's fade ends.
+        if (elapsed >= INTRO.P5_START) {
+            const feats = introFeatureList(g);
+            const n = feats.length;
+            const rel = elapsed - INTRO.P5_START;
+            for (let k = 0; k < n; k++) {
+                const f = feats[k];
+                const nameStart = k * INTRO.P5_STAGGER;
+                const sinceName = rel - nameStart;
+                if (sinceName <= 0) continue;
+                const only = (t, i) => (t === f.type && i === f.index);
+                // Name fade over P5_NAME_FADE.
+                const nameFade = easeInOutQuad(clamp01(sinceName / INTRO.P5_NAME_FADE));
+                if (nameFade > 0) drawFeatureNames(g, nameFade, only, true);
+                // Line grows only after the name has fully appeared.
+                const sinceGrow = sinceName - INTRO.P5_NAME_FADE;
+                if (sinceGrow > 0) {
+                    const grow = clamp01(sinceGrow / INTRO.P5_GROW);
+                    drawFeatureLines(g, 1, grow, only);
+                }
+            }
+        }
+
+        // Inner category arcs sweep clockwise across the whole angular span,
+        // synced with the feature name/line pipeline (same P5 window). Drawn full
+        // strength (they're structural lines, not a fade). Once P5 is done they're
+        // complete; P6 no longer needs to redraw them.
+        const arcSweep = clamp01((elapsed - INTRO.P5_START) / (INTRO.P5_END - INTRO.P5_START));
+        if (arcSweep > 0) drawInnerArcs(g, 1, arcSweep);
+
+        // P6 foreground: crossing beads (zones drawn at top of frame; inner arcs
+        // already swept in during P5).
+        if (p6 > 0) {
+            drawCrossingBeads(g, p6);
+        }
+
+        // Fade the DOM buttons in during the final phase (P6).
+        if (p6 > 0 && !introState.buttonsFading) {
+            introState.buttonsFading = true;
+            introShowButtonsFading();
+        }
+
+        if (elapsed >= INTRO.P6_END) {
+            endIntro();
+            return;
+        }
+        introState.frameId = requestAnimationFrame(introFrame);
+    }
+
+    function endIntro() {
+        introState.active = false;
+        introState.frameId = null;
+        introState.buttonsFading = false;
+        finishIntroTitle();
+        drawGrid();            // final, authoritative frame
+        // Clear the intro fade classes and show everything at full opacity.
+        introClearButtonFadeClasses();
+        positionUIElements();  // reveal add-buttons + reset now that intro is done
+    }
+
+    function startIntro() {
+        // Reduced motion: skip to final state.
+        let reduce = false;
+        try { reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
+        catch (e) { reduce = false; }
+        if (reduce) {
+            introState.active = false;
+            introState.buttonsFading = false;
+            finishIntroTitle();
+            drawGrid();
+            introClearButtonFadeClasses();
+            positionUIElements();
+            return;
+        }
+        if (introState.frameId !== null) cancelAnimationFrame(introState.frameId);
+        // Size phase 5 to the actual feature count so P6 follows correctly.
+        introSetP5End(introFeatureList(geometry()).length);
+        introState.active = true;
+        introState.startTime = 0;   // anchored on the first introFrame timestamp
+        introState.buttonsFading = false;
+        // Hide all DOM UI (including the reset button) — everything fades in
+        // together during the final phase.
+        introHideUI();
+        // Blank the canvas immediately (title starts empty).
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const el = document.getElementById('abacusTitle');
+        if (el) el.textContent = '';
+        introState.frameId = requestAnimationFrame(introFrame);
+    }
+
+    // IDs of the DOM buttons that fade in at the end of the intro.
+    const INTRO_FADE_BUTTON_IDS = ['addSector1', 'addSector2', 'addSector3', 'addProperty', 'abacusResetBtn'];
+
+    // Position the buttons (so they sit correctly) but start them transparent,
+    // then on the next frame add the fade-in class so they transition to opaque
+    // over the final phase.
+    function introShowButtonsFading() {
+        positionUIElements.__introFade = true;   // tell positioner to keep them transparent
+        positionUIElements();
+        positionUIElements.__introFade = false;
+        // Force reflow so the opacity:0 state is committed before the transition.
+        const first = document.getElementById(INTRO_FADE_BUTTON_IDS[0]);
+        if (first) void first.offsetWidth;
+        for (const id of INTRO_FADE_BUTTON_IDS) {
+            const el = document.getElementById(id);
+            if (el) { el.classList.remove('intro-hidden'); el.classList.add('intro-fade-in'); }
+        }
+    }
+
+    function introClearButtonFadeClasses() {
+        for (const id of INTRO_FADE_BUTTON_IDS) {
+            const el = document.getElementById(id);
+            if (el) el.classList.remove('intro-hidden', 'intro-fade-in');
+        }
+    }
+
+    // Hide add-buttons + inputs + reset button during the intro (all fade in at
+    // the end together).
+    function introHideUI() {
+        ['addSector1', 'addSector2', 'addSector3', 'addProperty',
+         'inputSector1', 'inputSector2', 'inputSector3', 'inputProperty',
+         'abacusResetBtn', 'propertyActions', 'featureActions'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = 'none';
+        });
+    }
+
+    // =====================================================================
+    // UI POSITIONING (add buttons + inputs)
+    // =====================================================================
+    function positionUIElements() {
+        // During the intro the add-buttons, inputs and reset button stay hidden —
+        // EXCEPT when introShowButtonsFading() calls us in fade mode, where we
+        // position + show them but start them transparent (opacity 0) so the
+        // caller can transition them to opaque.
+        const introFade = !!positionUIElements.__introFade;
+        if (introState.active && !introFade) { introHideUI(); return; }
+        const g = geometry();
+        // In fade mode, add the intro-hidden (opacity:0) class to the buttons
+        // that will fade; the caller swaps it for intro-fade-in.
+        const markFade = (el) => { if (introFade && el) el.classList.add('intro-hidden'); };
+
+        // Each category's "+" sits just inside its last feature line.
+        const cats = [
+            { addId: 'addSector1', inId: 'inputSector1', radius: g.veryInnerR - buttonMargin,      endAngle: g.sector1EndAngle },
+            { addId: 'addSector2', inId: 'inputSector2', radius: g.innerCircle2R - buttonMargin,    endAngle: g.sector2EndAngle },
+            { addId: 'addSector3', inId: 'inputSector3', radius: g.innerCircle1R - buttonMargin,    endAngle: g.sector3EndAngle },
+        ];
+        for (const c of cats) {
+            const x = centerX + c.radius * Math.cos(c.endAngle);
+            const y = centerY + c.radius * Math.sin(c.endAngle);
+            const addEl = document.getElementById(c.addId);
+            addEl.style.left = `${x}px`;
+            addEl.style.top = `${y}px`;
+            addEl.style.display = 'block';
+            markFade(addEl);
+            const inEl = document.getElementById(c.inId);
+            inEl.style.left = `${x + 15}px`;
+            inEl.style.top = `${y}px`;
+        }
+
+        // Property "+" at the next ring out; X anchored to the default border.
+        const propertyRadius = innerRadius + properties.length * circleSpacing;
+        const propertyButtonY = centerY - propertyRadius;
+        const propertyButtonX = g.textAnchorX + textPadding;
+        const addProp = document.getElementById('addProperty');
+        addProp.style.left = `${propertyButtonX}px`;
+        addProp.style.top = `${propertyButtonY}px`;
+        addProp.style.display = 'block';
+        markFade(addProp);
+        const inProp = document.getElementById('inputProperty');
+        inProp.style.left = `${propertyButtonX + 15}px`;
+        inProp.style.top = `${propertyButtonY}px`;
+
+        // Whole-abacus reset button: see positionResetButton().
+        positionResetButton();
+        markFade(document.getElementById('abacusResetBtn'));
+    }
+
+    // Position (and show) the reset button centred under the title. Split out so
+    // the intro can display it while the rest of the UI stays hidden.
+    function positionResetButton() {
+        const titleEl = document.getElementById('abacusTitle');
+        const resetEl = document.getElementById('abacusResetBtn');
+        if (titleEl && resetEl) {
+            // The title uses translate(-50%,-50%), so its CSS `left` IS the
+            // visual centre-x; read it from computed style rather than offsetLeft
+            // (the rendered left edge). Sit the button just below the title.
+            const titleCenterX = parseFloat(getComputedStyle(titleEl).left) || centerX;
+            const halfH = titleEl.offsetHeight / 2;
+            resetEl.style.left = `${titleCenterX}px`;
+            resetEl.style.top = `${centerY + halfH + 20}px`;
+            resetEl.style.display = 'block';
+        }
+    }
+
+    // =====================================================================
+    // ADD OPERATIONS
+    // =====================================================================
+    function addNewFeature(sector, name) {
+        if (!name.trim()) return;
+        const newItem = { name: name.trim(), values: {} };
+        properties.forEach(p => { newItem.values[p] = ""; });
+        if (sector === 1) materials.push(newItem);
+        else if (sector === 2) semiProcessed.push(newItem);
+        else if (sector === 3) furniture.push(newItem);
+        saveUserData();
+        document.getElementById(`inputSector${sector}`).style.display = 'none';
+        overlay.style.display = 'none';
+        activeSector = null;
+        drawGrid();
+        positionUIElements();
+    }
+
+    function addNewProperty(name) {
+        if (!name.trim()) return;
+        const propName = name.trim();
+        if (properties.includes(propName)) return;
+
+        const isIncremental = document.getElementById('inputPropertyTypeToggle').checked;
+        propertyType[propName] = isIncremental ? "incremental" : "neutral";
+
+        properties.push(propName);
+        materials.forEach(m => m.values[propName] = "");
+        semiProcessed.forEach(m => m.values[propName] = "");
+        furniture.forEach(m => m.values[propName] = "");
+        saveUserData();
+
+        document.getElementById('inputPropertyTypeToggle').checked = true;
+        updateTypePreview();
+        document.getElementById('inputProperty').style.display = 'none';
+        overlay.style.display = 'none';
+        activeSector = null;
+        drawGrid();
+        positionUIElements();
+
+        openLevelNamePicker(propName, properties.length - 1);
+    }
+
+    // =====================================================================
+    // PERSISTENCE (+ one-time migration from the pre-V6 keys)
+    // =====================================================================
+    const USER_DATA_KEY = 'abacus_user_data_v6';
+    const USER_DATA_KEY_LEGACY = 'abacus_user_data';
+    // Per-session flag: intro plays on the first init of a browser session.
+    const INTRO_SEEN_KEY = 'abacus_intro_shown_v6';
+
+    function saveUserData() {
+        const userProps = properties.filter(c => !defaultPropertyNames.has(c));
+        const userTypes = {}, userLevelNames = {}, userLetterMapping = {};
+        for (const p of userProps) {
+            if (propertyType[p] !== undefined) userTypes[p] = propertyType[p];
+            if (levelNames[p] !== undefined) userLevelNames[p] = levelNames[p];
+            if (letterMapping[p] !== undefined) userLetterMapping[p] = letterMapping[p];
+        }
+        // Value overrides on DEFAULT features. A default feature is never stored
+        // wholesale (its name is filtered out below), so a bead assigned/changed on
+        // one would otherwise be lost on reload. Diff each default feature's current
+        // values against the frozen default snapshot and store only the deltas.
+        // Keyed by category -> feature name -> { propertyName: value }.
+        const valueOverrides = { material: {}, semiProcessed: {}, furniture: {} };
+        function collectOverrides(arr, defaultNames, snapshot, bucket) {
+            for (const m of arr) {
+                if (!defaultNames.has(m.name)) continue; // user features stored whole
+                const base = snapshot[m.name] || {};
+                const delta = {};
+                for (const p in m.values) {
+                    if (String(m.values[p]) !== String(base[p] !== undefined ? base[p] : '')) {
+                        delta[p] = m.values[p];
+                    }
+                }
+                if (Object.keys(delta).length) bucket[m.name] = delta;
+            }
+        }
+        collectOverrides(materials, defaultMaterialNames, defaultFeatureValues.material, valueOverrides.material);
+        collectOverrides(semiProcessed, defaultSemiNames, defaultFeatureValues.semiProcessed, valueOverrides.semiProcessed);
+        collectOverrides(furniture, defaultFurnitureNames, defaultFeatureValues.furniture, valueOverrides.furniture);
+
+        const userData = {
+            properties: userProps,
+            propertyTypes: userTypes,
+            levelNames: userLevelNames,
+            letterMapping: userLetterMapping,
+            materials: materials.filter(m => !defaultMaterialNames.has(m.name)),
+            semiProcessed: semiProcessed.filter(m => !defaultSemiNames.has(m.name)),
+            furniture: furniture.filter(m => !defaultFurnitureNames.has(m.name)),
+            valueOverrides,
+        };
+        try { localStorage.setItem(USER_DATA_KEY, JSON.stringify(userData)); }
+        catch (e) { console.warn('Could not save user data to localStorage:', e); }
+    }
+
+    function resetToDefaults() {
+        try { localStorage.removeItem(USER_DATA_KEY); } catch (e) {}
+        window.location.reload();
+    }
+
+    // =====================================================================
+    // CROSSING HIT-DETECTION (feature line x property ring)
+    // =====================================================================
+    function findHoveredCrossing(mouseX, mouseY) {
+        const g = geometry();
+        const dx = mouseX - centerX;
+        const dy = mouseY - centerY;
+        const r = Math.sqrt(dx * dx + dy * dy);
+        if (r < innerRadius - (dotRadius + 4)) return null;
+
+        // Nearest property ring.
+        let bestProp = -1, bestPropDist = Infinity;
+        for (let i = 0; i < properties.length; i++) {
+            const propR = innerRadius + i * circleSpacing;
+            const d = Math.abs(r - propR);
+            if (d < bestPropDist) { bestPropDist = d; bestProp = i; }
+        }
+        if (bestPropDist > dotRadius + 4) return null;
+
+        // Nearest feature line by angle.
+        const theta = Math.atan2(dy, dx);
+        let best = null, bestAng = Infinity;
+        for (const cat of FEATURE_CATEGORIES) {
+            const arr = cat.arr();
+            for (let i = 0; i < arr.length; i++) {
+                const a = featureAngle(cat.type, i, g);
+                let da = a - theta;
+                while (da > Math.PI) da -= 2 * Math.PI;
+                while (da < -Math.PI) da += 2 * Math.PI;
+                da = Math.abs(da);
+                if (da < bestAng) { bestAng = da; best = { type: cat.type, index: i, angle: a, item: arr[i] }; }
+            }
+        }
+        if (!best) return null;
+        const angularTol = (dotRadius + 4) / Math.max(r, 1);
+        if (bestAng > angularTol) return null;
+
+        const propName = properties[bestProp];
+        const item = best.item;
+        if (!item) return null;
+        const value = (item.values && item.values[propName] !== undefined) ? String(item.values[propName]) : '';
+        const propRadius = innerRadius + bestProp * circleSpacing;
+        return {
+            type: best.type,
+            featureIndex: best.index,
+            featureName: item.name,
+            propertyIndex: bestProp,
+            propertyName: propName,
+            angle: best.angle,
+            radius: propRadius,
+            x: centerX + propRadius * Math.cos(best.angle),
+            y: centerY + propRadius * Math.sin(best.angle),
+            value: value,
+            hasValue: value !== '',
+        };
+    }
+
+    // =====================================================================
+    // HIT-TEST: is a point inside a text element?
+    // =====================================================================
+    function isPointInTextElement(x, y, element) {
+        const cos = Math.cos(element.angle);
+        const sin = Math.sin(element.angle);
+        const localX = (x - element.x) * cos + (y - element.y) * sin;
+        const localY = -(x - element.x) * sin + (y - element.y) * cos;
+        const padX = 4, padY = 2;
+        return localX >= -padX && localX <= element.width + padX
+            && localY >= -6 - padY && localY <= 6 + padY;
+    }
+
+    // =====================================================================
+    // USER-ADDED MANAGEMENT: hover action buttons, delete/reset, confirm modal
+    // =====================================================================
+    function isUserProperty(name) { return !defaultPropertyNames.has(name); }
+    function isUserFeature(type, name) { return !defaultNameSet(type).has(name); }
+
+    // Suppress fade-out while the cursor is over an action-button group.
+    let actionsHovered = false;
+
+    // Geometry constants for the feature-hover buttons / corridor hit zone.
+    const OUTERMOST_INNER_R = innerRadius - circleSpacing;
+    const FEATURE_BTN_RADIUS = OUTERMOST_INNER_R - 10;   // just inside the outer ring
+    const FEATURE_BTN_PERP_OFFSET = 14;                  // half the tangential gap between the two
+
+    function updateActionButtons() {
+        const propEl = document.getElementById('propertyActions');
+        const featEl = document.getElementById('featureActions');
+        propEl.style.display = 'none';
+        featEl.style.display = 'none';
+
+        // Property: horizontal pair just left of the property text.
+        if (hoveredProperty !== null) {
+            const name = properties[hoveredProperty];
+            if (isUserProperty(name)) {
+                const g = geometry();
+                const y = centerY - (innerRadius + hoveredProperty * circleSpacing);
+                const buttonGroupWidth = 48;
+                const x = g.textAnchorX + textPadding - buttonGroupWidth - 4;
+                propEl.style.left = x + 'px';
+                propEl.style.top = (y - 11) + 'px';
+                propEl.style.transform = 'rotate(0deg)';
+                propEl.dataset.target = name;
+                propEl.style.display = 'inline-block';
+            }
+        }
+
+        // Feature: two upright buttons on opposite sides of the feature line.
+        if (hoveredFeature !== null) {
+            const type = hoveredFeature.type;
+            const item = categoryArray(type)[hoveredFeature.index];
+            if (item && isUserFeature(type, item.name)) {
+                const angle = hoveredFeature.angle;
+                const cx = centerX + FEATURE_BTN_RADIUS * Math.cos(angle);
+                const cy = centerY + FEATURE_BTN_RADIUS * Math.sin(angle);
+                const tx = -Math.sin(angle), ty = Math.cos(angle);
+                const HALF = 10;
+
+                featEl.style.left = '0px';
+                featEl.style.top = '0px';
+                featEl.style.transform = 'none';
+                featEl.dataset.target = JSON.stringify({ type, name: item.name });
+                featEl.style.display = 'block';
+
+                const btns = featEl.querySelectorAll('.user-action-btn');
+                btns[0].style.position = 'absolute';
+                btns[0].style.margin = '0';
+                btns[0].style.left = (cx + FEATURE_BTN_PERP_OFFSET * tx - HALF) + 'px';
+                btns[0].style.top  = (cy + FEATURE_BTN_PERP_OFFSET * ty - HALF) + 'px';
+                btns[1].style.position = 'absolute';
+                btns[1].style.margin = '0';
+                btns[1].style.left = (cx - FEATURE_BTN_PERP_OFFSET * tx - HALF) + 'px';
+                btns[1].style.top  = (cy - FEATURE_BTN_PERP_OFFSET * ty - HALF) + 'px';
+            }
+        }
+    }
+
+    function showConfirm(message, onOk) {
+        const modal = document.getElementById('confirmModal');
+        document.getElementById('confirmMessage').textContent = message;
+        modal.style.display = 'flex';
+        const okBtn = document.getElementById('confirmOk');
+        const cancelBtn = document.getElementById('confirmCancel');
+        const close = () => { modal.style.display = 'none'; };
+        okBtn.onclick = () => { close(); onOk(); };
+        cancelBtn.onclick = close;
+    }
+
+    function deleteProperty(name) {
+        if (!isUserProperty(name)) return;
+        const idx = properties.indexOf(name);
+        if (idx < 0) return;
+        properties.splice(idx, 1);
+        delete propertyType[name];
+        delete levelNames[name];
+        delete letterMapping[name];
+        delete propertyHues[name];
+        savePropertyHues();
+        materials.forEach(m => delete m.values[name]);
+        semiProcessed.forEach(m => delete m.values[name]);
+        furniture.forEach(m => delete m.values[name]);
+    }
+
+    function deleteFeature(type, name) {
+        if (!isUserFeature(type, name)) return;
+        if (type === 'material') materials = materials.filter(m => m.name !== name);
+        else if (type === 'semiProcessed') semiProcessed = semiProcessed.filter(m => m.name !== name);
+        else if (type === 'furniture') furniture = furniture.filter(m => m.name !== name);
+    }
+
+    function resetUserProperties() {
+        properties.filter(c => !defaultPropertyNames.has(c)).forEach(deleteProperty);
+    }
+    function resetUserFeatures() {
+        materials = materials.filter(m => defaultMaterialNames.has(m.name));
+        semiProcessed = semiProcessed.filter(m => defaultSemiNames.has(m.name));
+        furniture = furniture.filter(m => defaultFurnitureNames.has(m.name));
+    }
+
+    // True if any bead anywhere differs from its default (snapshot for default
+    // features; non-empty for user-added features). Drives whether the picker's
+    // reset-all-beads button is offered.
+    function isAnyBeadModified() {
+        for (const cat of FEATURE_CATEGORIES) {
+            const dNames = defaultNameSet(cat.type);
+            const snapAll = defaultFeatureValues[cat.type];
+            for (const m of cat.arr()) {
+                const userFeat = !dNames.has(m.name);
+                for (const p of properties) {
+                    const cur = String(m.values[p] || '');
+                    if (userFeat) { if (cur !== '') return true; }
+                    else {
+                        const snap = snapAll[m.name] || {};
+                        const def = snap[p] !== undefined ? String(snap[p]) : '';
+                        if (cur !== def) return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    // Reset all modified level beads to default (issue 3). "Default" = the frozen
+    // snapshot value for default features (empty if the property didn't exist at
+    // init), and empty for user-added features. Restricted to properties that
+    // still exist so we don't resurrect values for deleted ones.
+    function resetAllBeads() {
+        const restore = (arr, defaultNames, snapshot) => {
+            for (const m of arr) {
+                for (const p of properties) {
+                    let def = '';
+                    if (defaultNames.has(m.name)) {
+                        const base = snapshot[m.name];
+                        if (base && base[p] !== undefined) def = base[p];
+                    }
+                    m.values[p] = def;
+                }
+            }
+        };
+        restore(materials, defaultMaterialNames, defaultFeatureValues.material);
+        restore(semiProcessed, defaultSemiNames, defaultFeatureValues.semiProcessed);
+        restore(furniture, defaultFurnitureNames, defaultFeatureValues.furniture);
+    }
+
+    // Reset a single bead to default (issue 3 delete-bead).
+    function resetOneBead(type, featureName, propertyName) {
+        const arr = categoryArray(type);
+        const m = arr.find(x => x.name === featureName);
+        if (!m) return;
+        let def = '';
+        const defaultNames = defaultNameSet(type);
+        if (defaultNames.has(featureName)) {
+            const snap = defaultFeatureValues[type][featureName];
+            if (snap && snap[propertyName] !== undefined) def = snap[propertyName];
+        }
+        m.values[propertyName] = def;
+    }
+
+    // Reset the whole abacus (issue 3): all user features + properties removed,
+    // all modified beads reset. Beads reset first (needs the full property list),
+    // then user properties/features are stripped.
+    function resetWholeAbacus() {
+        resetAllBeads();
+        resetUserProperties();
+        resetUserFeatures();
+    }
+
+    // Common cleanup after any delete/reset.
+    function postChange() {
+        saveUserData();
+        hoveredProperty = null;
+        hoveredFeature = null;
+        hoveredLevelValue = null;
+        hoveredGroup = null;
+        hoveredElement = null;
+        focusedCrossing = null;
+        hoveredCrossing = null;
+        mainFade.start(0);   // settle handler will finish clearing once at 0
+        intersectionFade.start(0);
+        actionsHovered = false;
+        updateActionButtons();
+        drawGrid();
+        positionUIElements();
+    }
+
+    document.getElementById('propertyActions').addEventListener('click', (e) => {
+        const btn = e.target.closest('.user-action-btn');
+        if (!btn) return;
+        const action = btn.dataset.action;
+        const targetName = document.getElementById('propertyActions').dataset.target;
+        if (!targetName) return;
+        if (action === 'delete-property') {
+            showConfirm(`The selected property, "${getDisplayName(targetName)}", will be deleted.`,
+                () => { deleteProperty(targetName); postChange(); });
+        } else if (action === 'reset-property') {
+            showConfirm('All added properties will be deleted.',
+                () => { resetUserProperties(); postChange(); });
+        }
+    });
+
+    document.getElementById('featureActions').addEventListener('click', (e) => {
+        const btn = e.target.closest('.user-action-btn');
+        if (!btn) return;
+        const action = btn.dataset.action;
+        let target;
+        try { target = JSON.parse(document.getElementById('featureActions').dataset.target || '{}'); }
+        catch (err) { return; }
+        if (!target.type || !target.name) return;
+        if (action === 'delete-feature') {
+            showConfirm(`The selected feature, "${target.name}", will be deleted.`,
+                () => { deleteFeature(target.type, target.name); postChange(); });
+        } else if (action === 'reset-feature') {
+            showConfirm('All added features will be deleted.',
+                () => { resetUserFeatures(); postChange(); });
+        }
+    });
+
+    // Whole-abacus reset (center title button): remove all user features +
+    // properties and reset all modified beads.
+    document.getElementById('abacusResetBtn').addEventListener('click', () => {
+        if (introState.active) return;
+        showConfirm(
+            'All added properties and features and modified property levels will be deleted and the abacus will be reset to its original form.',
+            () => {
+                resetWholeAbacus();
+                saveUserData();
+                // Clear hover/focus state without the normal redraw, then replay
+                // the intro from a blank canvas.
+                hoveredProperty = null; hoveredFeature = null; hoveredLevelValue = null;
+                hoveredGroup = null; hoveredElement = null; focusedCrossing = null;
+                hoveredCrossing = null; actionsHovered = false;
+                updateActionButtons();
+                startIntro();
+            }
+        );
+    });
+
+    ['propertyActions', 'featureActions'].forEach(id => {
+        const el = document.getElementById(id);
+        el.addEventListener('mouseenter', () => { actionsHovered = true; });
+        el.addEventListener('mouseleave', (e) => {
+            actionsHovered = false;
+            if (e.relatedTarget !== canvas) mainFade.start(0);
+        });
+    });
+
+    // =====================================================================
+    // ADD-BUTTON + INPUT LISTENERS
+    // =====================================================================
+    function closeAllInputs() {
+        for (let i = 1; i <= 3; i++) document.getElementById(`inputSector${i}`).style.display = 'none';
+        document.getElementById('inputProperty').style.display = 'none';
+        overlay.style.display = 'none';
+        activeSector = null;
+    }
+
+    [1, 2, 3].forEach(n => {
+        document.getElementById(`addSector${n}`).addEventListener('click', () => {
+            closeAllInputs();
+            document.getElementById(`inputSector${n}`).style.display = 'block';
+            document.getElementById(`inputSector${n}Text`).focus();
+            overlay.style.display = 'block';
+            activeSector = n;
+        });
+        document.getElementById(`inputSector${n}Text`).addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { addNewFeature(n, e.target.value); e.target.value = ''; }
+        });
+    });
+
+    document.getElementById('addProperty').addEventListener('click', () => {
+        closeAllInputs();
+        document.getElementById('inputProperty').style.display = 'block';
+        document.getElementById('inputPropertyText').focus();
+        overlay.style.display = 'block';
+        activeSector = 'property';
+        updateTypePreview();
+    });
+
+    function updateTypePreview() {
+        const toggle = document.getElementById('inputPropertyTypeToggle');
+        const preview = document.getElementById('typePreview');
+        if (!toggle || !preview) return;
+        preview.classList.remove('incremental', 'neutral');
+        preview.classList.add(toggle.checked ? 'incremental' : 'neutral');
+    }
+    document.getElementById('inputPropertyTypeToggle').addEventListener('change', updateTypePreview);
+    updateTypePreview();
+
+    document.getElementById('inputPropertyText').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { addNewProperty(e.target.value); e.target.value = ''; }
+    });
+
+    document.addEventListener('click', (e) => {
+        if (activeSector !== null) {
+            const inputId = activeSector === 'property' ? 'inputProperty' : `inputSector${activeSector}`;
+            const buttonId = activeSector === 'property' ? 'addProperty' : `addSector${activeSector}`;
+            const inputContainer = document.getElementById(inputId);
+            const button = document.getElementById(buttonId);
+            if (!inputContainer.contains(e.target) && !button.contains(e.target)) closeAllInputs();
+        }
+    });
+
+    // =====================================================================
+    // HOVER (mousemove)
+    // =====================================================================
+    canvas.addEventListener('mousemove', (e) => {
+        if (introState.active) return;
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        let newHoverElement = null;
+        let newHoverFeature = null;
+        let newHoverProperty = null;
+        let newHoverLevelValue = null;
+        let newHoverGroup = null;
+
+        for (const element of textElements) {
+            if (isPointInTextElement(mouseX, mouseY, element)) {
+                newHoverElement = element;
+                if (element.type === 'material' || element.type === 'semiProcessed' || element.type === 'furniture') {
+                    newHoverFeature = element;
+                } else if (element.type === 'characteristic') {
+                    newHoverProperty = element.index;
+                    newHoverGroup = groupForIndex(element.index);
+                } else if (element.type === 'level') {
+                    newHoverProperty = element.index;
+                    newHoverLevelValue = element.value;
+                    newHoverGroup = groupForIndex(element.index);
+                } else if (element.type === 'group') {
+                    newHoverGroup = propertyGroups.find(g => g.name === element.groupName) || null;
+                }
+                break;
+            }
+        }
+
+        // Radial corridor: keep a user-added feature hovered while the cursor
+        // travels along its line toward the tangential action buttons.
+        if (!newHoverFeature && hoveredFeature) {
+            const h = hoveredFeature;
+            const item = categoryArray(h.type)[h.index];
+            if (item && isUserFeature(h.type, item.name)) {
+                const dx = mouseX - centerX, dy = mouseY - centerY;
+                const along = dx * Math.cos(h.angle) + dy * Math.sin(h.angle);
+                const perp  = -dx * Math.sin(h.angle) + dy * Math.cos(h.angle);
+                const corridorInner = h.textStartRadius - 4;
+                const corridorOuter = FEATURE_BTN_RADIUS + 14;
+                if (along >= corridorInner && along <= corridorOuter && Math.abs(perp) <= FEATURE_BTN_PERP_OFFSET + 14) {
+                    newHoverElement = hoveredElement;
+                    newHoverFeature = h;
+                }
+            }
+        }
+
+        const hasNewHover = newHoverFeature !== null || newHoverProperty !== null || newHoverGroup !== null;
+
+        if (hasNewHover) {
+            hoveredElement = newHoverElement;
+            hoveredFeature = newHoverFeature;
+            hoveredProperty = newHoverProperty;
+            hoveredLevelValue = newHoverLevelValue;
+            hoveredGroup = newHoverGroup;
+            updateActionButtons();
+            const wasIdle = mainFade.value === 0 && mainFade.target === 0;
+            mainFade.start(1);
+            // If already fully faded-in and no animation is scheduled, redraw so the
+            // highlight swaps to the new element.
+            if (!wasIdle && mainFade.value === 1) drawGrid();
+        } else {
+            // Don't clear hovered* here; the fade settle handler clears at value 0.
+            mainFade.start(0);
+        }
+
+        // Crossing handling. Empty -> placeholder + its own fade (clickable).
+        // Filled -> focus mode (main fade dims; drawFocusedCrossing redraws).
+        const newCrossing = findHoveredCrossing(mouseX, mouseY);
+        if (newCrossing && !newCrossing.hasValue) {
+            const same = hoveredCrossing &&
+                hoveredCrossing.type === newCrossing.type &&
+                hoveredCrossing.featureIndex === newCrossing.featureIndex &&
+                hoveredCrossing.propertyIndex === newCrossing.propertyIndex;
+            if (!same) { hoveredCrossing = newCrossing; drawGrid(); }
+            intersectionFade.start(1);
+            if (focusedCrossing) { focusedCrossing = null; cancelLongPress(); drawGrid(); }
+        } else if (newCrossing && newCrossing.hasValue) {
+            // A filled bead is under the cursor: focus mode owns the hover this
+            // frame. Any feature/property text hover set by the block above (e.g.
+            // the name we just moved off of, or the corridor keeping the old
+            // feature alive) is stale relative to the bead and must be dropped —
+            // otherwise drawHoverEffects' focus early-return leaves the old
+            // feature drawn while the focused bead renders, blanking one of them.
+            hoveredFeature = null;
+            hoveredProperty = null;
+            hoveredLevelValue = null;
+            hoveredElement = null;
+            updateActionButtons();
+            const same = focusedCrossing &&
+                focusedCrossing.type === newCrossing.type &&
+                focusedCrossing.featureIndex === newCrossing.featureIndex &&
+                focusedCrossing.propertyIndex === newCrossing.propertyIndex;
+            if (!same) { focusedCrossing = newCrossing; cancelLongPress(); drawGrid(); }
+            const fg = groupForProperty(newCrossing.propertyName);
+            if (fg !== hoveredGroup) { hoveredGroup = fg; drawGrid(); }
+            mainFade.start(1);
+            intersectionFade.start(0);
+            if (mainFade.value === 1) drawGrid();
+        } else {
+            intersectionFade.start(0);
+            if (focusedCrossing) {
+                // A filled crossing was focused last frame but the cursor is no
+                // longer on any crossing. If the cursor has instead landed on a
+                // different hover element (a feature name, property, group...),
+                // the focus is stale: clear it now so drawHoverEffects doesn't
+                // early-return on it (which left the old bead's feature drawn and
+                // the newly-hovered element blank/white). Then redraw so the new
+                // highlight takes over immediately.
+                focusedCrossing = null;
+                cancelLongPress();
+                if (!hasNewHover) mainFade.start(0);
+                else drawGrid();
+            }
+            if (!hasNewHover && focusedCrossing === null && hoveredGroup) hoveredGroup = null;
+        }
+    });
+
+    canvas.addEventListener('mouseleave', (e) => {
+        if (introState.active) return;
+        const r = e.relatedTarget;
+        if (r && r.closest && (r.closest('#propertyActions') || r.closest('#featureActions'))) return;
+        mainFade.start(0);
+        intersectionFade.start(0);
+        cancelLongPress();
+    });
+
+    // =====================================================================
+    // LEVEL PICKER (assign / change a level at a crossing)
+    // =====================================================================
+    function openLevelPicker(crossing) {
+        const picker   = document.getElementById('levelPicker');
+        const pOverlay = document.getElementById('levelPickerOverlay');
+        const feature  = document.getElementById('pickerFeature');
+        const property = document.getElementById('pickerProperty');
+        const circles  = document.getElementById('pickerCircles');
+        const status   = document.getElementById('pickerStatus');
+
+        feature.textContent  = crossing.featureName;
+        property.textContent = getDisplayName(crossing.propertyName);
+
+        circles.innerHTML = '';
+        const isNeutral = getPropertyType(crossing.propertyName) === 'neutral';
+        const levels = levelNames[crossing.propertyName] || ['', '', ''];
+        const mapping = letterMapping[crossing.propertyName] || {};
+        for (let i = 0; i < levels.length; i++) {
+            const v = String(i);
+            const btn = document.createElement('button');
+            btn.className = 'level-circle';
+            btn.dataset.level = v;
+            if (isNeutral) {
+                btn.style.background = '#ffffff';
+                btn.textContent = (mapping[v] !== undefined) ? mapping[v] : v;
+            } else {
+                const col = getColorForValue(crossing.propertyName, v);
+                btn.style.background = col || '#ffffff';
+                btn.textContent = '';
+            }
+            const levelName = levels[i] || ('level ' + v);
+            btn.addEventListener('mouseenter', () => { status.textContent = levelName; });
+            btn.addEventListener('mouseleave', () => { status.textContent = 'select level'; });
+            btn.addEventListener('click', () => assignLevel(crossing, v));
+            circles.appendChild(btn);
+        }
+
+        // Remove-level (slash) button: empties the bead. Offered whenever there is
+        // a level to remove (current value non-empty) — including default beads,
+        // so a default property level can be removed. After removal the bead reads
+        // as modified, so the top-right delete/reset buttons then appear to undo it.
+        if (String(crossing.value || '') !== '') {
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'level-circle level-reset';
+            removeBtn.style.background = '#ffffff';
+            removeBtn.innerHTML =
+                '<svg viewBox="0 0 24 24" width="14" height="14" stroke="#605a5a" ' +
+                'stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+            removeBtn.addEventListener('mouseenter', () => { status.textContent = 'remove level'; });
+            removeBtn.addEventListener('mouseleave', () => { status.textContent = 'select level'; });
+            removeBtn.addEventListener('click', () => assignLevel(crossing, ''));
+            circles.appendChild(removeBtn);
+        }
+
+        // Top-right actions (reset-all-beads / delete-this-bead) appear only when
+        // this bead is user-modified: either the feature is user-added, or the
+        // current value differs from the default snapshot for a default feature.
+        const actionsEl = document.getElementById('pickerActions');
+        const dNames = defaultNameSet(crossing.type);
+        const isUserFeat = !dNames.has(crossing.featureName);
+        let beadModified;
+        if (isUserFeat) {
+            beadModified = String(crossing.value || '') !== '';
+        } else {
+            const snap = defaultFeatureValues[crossing.type][crossing.featureName] || {};
+            const def = snap[crossing.propertyName] !== undefined ? String(snap[crossing.propertyName]) : '';
+            beadModified = String(crossing.value || '') !== def;
+        }
+        // Reset-all is offered whenever ANY bead is modified anywhere; delete-this
+        // only when this specific bead is modified.
+        const anyBeadModified = isAnyBeadModified();
+        if (beadModified || anyBeadModified) {
+            actionsEl.style.display = 'flex';
+            document.getElementById('pickerDeleteBead').style.display = beadModified ? 'inline-flex' : 'none';
+            document.getElementById('pickerResetBeads').style.display = anyBeadModified ? 'inline-flex' : 'none';
+        } else {
+            actionsEl.style.display = 'none';
+        }
+        const deleteBeadBtn = document.getElementById('pickerDeleteBead');
+        const resetBeadsBtn = document.getElementById('pickerResetBeads');
+        deleteBeadBtn.onmouseenter = () => { status.textContent = 'reset this level'; };
+        deleteBeadBtn.onmouseleave = () => { status.textContent = 'select level'; };
+        resetBeadsBtn.onmouseenter = () => { status.textContent = 'reset all levels'; };
+        resetBeadsBtn.onmouseleave = () => { status.textContent = 'select level'; };
+        deleteBeadBtn.onclick = () => {
+            showConfirm(
+                `The property level "${getDisplayName(crossing.propertyName)}" of "${crossing.featureName}" will be reset to default.`,
+                () => { resetOneBead(crossing.type, crossing.featureName, crossing.propertyName); saveUserData(); closeLevelPicker(); postChange(); }
+            );
+        };
+        resetBeadsBtn.onclick = () => {
+            showConfirm(
+                'All modified property levels will be reset to default.',
+                () => { resetAllBeads(); saveUserData(); closeLevelPicker(); postChange(); }
+            );
+        };
+
+        status.textContent = 'select level';
+
+        picker.style.display = 'block';
+        const w = picker.offsetWidth, h = picker.offsetHeight;
+        picker.style.left = (crossing.x - w / 2) + 'px';
+        picker.style.top  = (crossing.y - h / 2) + 'px';
+
+        pOverlay.style.display = 'block';
+        void pOverlay.offsetWidth;
+        pOverlay.classList.add('active');
+        picker.classList.add('active');
+
+        intersectionFade.start(0);
+    }
+
+    function closeLevelPicker() {
+        const picker   = document.getElementById('levelPicker');
+        const pOverlay = document.getElementById('levelPickerOverlay');
+        pOverlay.classList.remove('active');
+        picker.classList.remove('active');
+        setTimeout(() => { pOverlay.style.display = 'none'; picker.style.display = 'none'; }, 200);
+    }
+
+    function assignLevel(crossing, value) {
+        const item = categoryArray(crossing.type)[crossing.featureIndex];
+        if (item) {
+            if (!item.values) item.values = {};
+            item.values[crossing.propertyName] = value;
+            saveUserData();
+            drawGrid();
+        }
+        closeLevelPicker();
+    }
+    document.getElementById('levelPickerOverlay').addEventListener('click', closeLevelPicker);
+
+    // =====================================================================
+    // LEVEL-NAME PICKER (name the three levels of a newly-created property)
+    // =====================================================================
+    function openLevelNamePicker(propName, propIndex) {
+        const overlayEl = document.getElementById('levelNamePickerOverlay');
+        const picker    = document.getElementById('levelNamePicker');
+        const titleEl   = document.getElementById('levelNameTitle');
+        const g = geometry();
+
+        const y = centerY - (innerRadius + propIndex * circleSpacing);
+        const levelCols = computeLevelColumns(g.textAnchorX);
+
+        picker.querySelectorAll('.level-name-input').forEach(el => el.remove());
+
+        titleEl.style.left = g.textAnchorX + 'px';
+        titleEl.style.top  = (y - 28) + 'px';
+
+        const inputs = [];
+        for (let v = 0; v < levelCols.length; v++) {
+            const col = levelCols[v];
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'level-name-input';
+            input.placeholder = propName.toLowerCase() + v;
+            input.dataset.level = v;
+            input.style.left  = (col.labelX - 2) + 'px';
+            input.style.top   = (y - 10) + 'px';
+            input.style.width = Math.max(60, col.gapEnd - col.labelX) + 'px';
+            input.addEventListener('input', (e) => {
+                if (!levelNames[propName]) levelNames[propName] = ['', '', ''];
+                levelNames[propName][v] = e.target.value;
+                saveUserData();
+                drawGrid();
+            });
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    if (v < levelCols.length - 1) inputs[v + 1].focus();
+                    else closeLevelNamePicker();
+                } else if (e.key === 'Escape') {
+                    closeLevelNamePicker();
+                }
+            });
+            picker.appendChild(input);
+            inputs.push(input);
+        }
+
+        overlayEl.style.display = 'block';
+        picker.style.display = 'block';
+        void overlayEl.offsetWidth;
+        overlayEl.classList.add('active');
+        picker.classList.add('active');
+        inputs[0].focus();
+    }
+
+    function closeLevelNamePicker() {
+        const overlayEl = document.getElementById('levelNamePickerOverlay');
+        const picker    = document.getElementById('levelNamePicker');
+        overlayEl.classList.remove('active');
+        picker.classList.remove('active');
+        setTimeout(() => {
+            overlayEl.style.display = 'none';
+            picker.style.display = 'none';
+            picker.querySelectorAll('.level-name-input').forEach(el => el.remove());
+        }, 200);
+    }
+    document.getElementById('levelNamePickerOverlay').addEventListener('click', closeLevelNamePicker);
+
+    // =====================================================================
+    // LONG-PRESS (filled bead -> reopen level picker after 2 s)
+    // =====================================================================
+    function tickLongPress() {
+        if (!longPressTimer) { longPressFrameId = null; return; }
+        drawGrid();
+        longPressFrameId = requestAnimationFrame(tickLongPress);
+    }
+    function startLongPress(crossing) {
+        cancelLongPress();
+        longPressKey = `${crossing.type}/${crossing.featureIndex}/${crossing.propertyIndex}`;
+        longPressStartTime = performance.now();
+        longPressTimer = setTimeout(() => {
+            if (focusedCrossing &&
+                `${focusedCrossing.type}/${focusedCrossing.featureIndex}/${focusedCrossing.propertyIndex}` === longPressKey) {
+                openLevelPicker(focusedCrossing);
+            }
+            longPressTimer = null;
+            longPressKey = null;
+            longPressStartTime = 0;
+            if (longPressFrameId) { cancelAnimationFrame(longPressFrameId); longPressFrameId = null; }
+            drawGrid();
+        }, LONG_PRESS_MS);
+        longPressFrameId = requestAnimationFrame(tickLongPress);
+    }
+    function cancelLongPress() {
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+        if (longPressFrameId) { cancelAnimationFrame(longPressFrameId); longPressFrameId = null; }
+        const wasActive = longPressKey !== null;
+        longPressKey = null;
+        longPressStartTime = 0;
+        if (wasActive) drawGrid();
+    }
+
+    canvas.addEventListener('mousedown', () => { if (introState.active) return; if (focusedCrossing) startLongPress(focusedCrossing); });
+    canvas.addEventListener('mouseup', () => { if (introState.active) return; cancelLongPress(); });
+    canvas.addEventListener('click', () => {
+        if (introState.active) return;
+        if (hoveredCrossing && !hoveredCrossing.hasValue) openLevelPicker(hoveredCrossing);
+    });
+
+    // =====================================================================
+    // INIT (defaults -> localStorage merge -> backfill -> render)
+    // Includes one-time migration from the pre-V6 localStorage keys.
+    // =====================================================================
+    function migrateLegacyStorage() {
+        // Copy old keys to the V6 keys once, if the V6 keys don't yet exist.
+        // Old keys are left in place (non-destructive).
+        try {
+            if (localStorage.getItem(USER_DATA_KEY) === null) {
+                const legacy = localStorage.getItem(USER_DATA_KEY_LEGACY);
+                if (legacy !== null) localStorage.setItem(USER_DATA_KEY, legacy);
+            }
+        } catch (e) {}
+        try {
+            if (localStorage.getItem(PROPERTY_HUES_KEY) === null) {
+                const legacyHues = localStorage.getItem(PROPERTY_HUES_KEY_LEGACY);
+                if (legacyHues !== null) localStorage.setItem(PROPERTY_HUES_KEY, legacyHues);
+            }
+        } catch (e) {}
+    }
+
+    function init() {
+        migrateLegacyStorage();
+
+        const props = window.__abacusProperties;
+        const feats = window.__abacusFeatures;
+        if (!props || !feats) {
+            throw new Error('Data files not loaded. Check that properties.js and features.js are next to abacus.html.');
+        }
+
+        // Defaults.
+        for (const p of props.list) { properties.push(p); defaultPropertyNames.add(p); }
+        Object.assign(propertyType, props.types || {});
+        Object.assign(levelNames, props.levelNames || {});
+        Object.assign(letterMapping, props.letterMapping || {});
+        DEFAULT_PROPERTY_COUNT = props.list.length;
+        propertyGroups = (props.groups || []).map(g => ({
+            name: g.name,
+            properties: Array.isArray(g.properties) ? g.properties.slice() : [],
+        }));
+
+        for (const m of (feats.materials || [])) { materials.push(m); defaultMaterialNames.add(m.name); }
+        for (const m of (feats.semiProcessed || [])) { semiProcessed.push(m); defaultSemiNames.add(m.name); }
+        for (const m of (feats.furniture || [])) { furniture.push(m); defaultFurnitureNames.add(m.name); }
+
+        // Deep-copy each default feature's original values NOW, before user
+        // overrides are applied, so the snapshot stays pristine for the diff.
+        function snapshotValues(arr, bucket) {
+            for (const m of arr) bucket[m.name] = Object.assign({}, m.values);
+        }
+        snapshotValues(materials, defaultFeatureValues.material);
+        snapshotValues(semiProcessed, defaultFeatureValues.semiProcessed);
+        snapshotValues(furniture, defaultFeatureValues.furniture);
+
+        // Property hues.
+        try { Object.assign(propertyHues, JSON.parse(localStorage.getItem(PROPERTY_HUES_KEY) || '{}')); }
+        catch (e) {}
+
+        // User additions.
+        let userData = {};
+        try { userData = JSON.parse(localStorage.getItem(USER_DATA_KEY) || '{}'); }
+        catch (e) { console.warn('Corrupt user data in localStorage, ignoring:', e); }
+        if (Array.isArray(userData.properties)) {
+            for (const p of userData.properties) if (!properties.includes(p)) properties.push(p);
+        }
+        if (userData.propertyTypes) Object.assign(propertyType, userData.propertyTypes);
+        if (userData.levelNames) Object.assign(levelNames, userData.levelNames);
+        if (userData.letterMapping) Object.assign(letterMapping, userData.letterMapping);
+        if (Array.isArray(userData.materials)) {
+            for (const m of userData.materials) if (!materials.some(x => x.name === m.name)) materials.push(m);
+        }
+        if (Array.isArray(userData.semiProcessed)) {
+            for (const m of userData.semiProcessed) if (!semiProcessed.some(x => x.name === m.name)) semiProcessed.push(m);
+        }
+        if (Array.isArray(userData.furniture)) {
+            for (const m of userData.furniture) if (!furniture.some(x => x.name === m.name)) furniture.push(m);
+        }
+
+        // Re-apply persisted bead overrides onto default features (issue 1).
+        if (userData.valueOverrides) {
+            const applyOverrides = (arr, bucket) => {
+                if (!bucket) return;
+                for (const m of arr) {
+                    const delta = bucket[m.name];
+                    if (!delta) continue;
+                    if (!m.values) m.values = {};
+                    for (const p in delta) m.values[p] = delta[p];
+                }
+            };
+            applyOverrides(materials, userData.valueOverrides.material);
+            applyOverrides(semiProcessed, userData.valueOverrides.semiProcessed);
+            applyOverrides(furniture, userData.valueOverrides.furniture);
+        }
+
+        // Backfill: every feature has an entry for every property.
+        function backfill(arr) {
+            for (const item of arr) {
+                if (!item.values) item.values = {};
+                for (const c of properties) if (item.values[c] === undefined) item.values[c] = "";
+            }
+        }
+        backfill(materials);
+        backfill(semiProcessed);
+        backfill(furniture);
+
+        // First load of this browser session -> play the intro; otherwise draw
+        // normally. The flag lives in sessionStorage so it replays once per new
+        // tab/session but not on in-session redraws. Reset also replays it (via
+        // the reset handler calling startIntro directly).
+        let firstThisSession = true;
+        try { firstThisSession = sessionStorage.getItem(INTRO_SEEN_KEY) === null; } catch (e) {}
+        if (firstThisSession) {
+            try { sessionStorage.setItem(INTRO_SEEN_KEY, '1'); } catch (e) {}
+            startIntro();
+        } else {
+            drawGrid();
+            positionUIElements();
+        }
+    }
+
+    try {
+        init();
+    } catch (err) {
+        console.error('Init failed:', err);
+        document.body.innerHTML =
+            '<div style="font-family:Helvetica,Arial,sans-serif;max-width:600px;margin:60px auto;padding:20px;line-height:1.5;">' +
+            '<h2 style="margin-top:0;">Could not initialize</h2>' +
+            '<p>The abacus loads its default data from <code>properties.js</code> and <code>features.js</code>. Both files must sit next to <code>abacus.html</code> in the same folder.</p>' +
+            '<p style="color:#888;font-size:12px;">Error: ' + (err && err.message ? err.message : err) + '</p>' +
+            '</div>';
+    }
+    </script>
+
+</body>
+</html>
