@@ -1,10 +1,10 @@
 # Abacus of Street Experiment Features
 
-A single-file HTML/Canvas app that renders a **radial diagram** of street-furniture
-features against a set of material/design properties. Each ring is a property, each
-spoke is a feature, and a **bead** at a ring×spoke crossing encodes that feature's
-value for that property. It runs entirely offline from a `file://` path — no server,
-no build step, no dependencies.
+The Abacus is a digital design tool, that was created to facilitate the selection of materials to use in tactical urban interventions, such as street experiments. In it are collected common physical features that can be deployed in urban design, subdivided in three classes: materials, semi-processed products and furniture pieces.
+The diagram also presents properties that characterise the features and determine their suitability for specific design needs.
+Where radial lines, corresponding to features, intersect concentric lines, corresponding to properties, there are "beads" that represent the level to which a property relates to the feature.
+The tool is an offline application, it runs entirely offline from local files that can be downloaded.
+The UI allows to make local modifications to the tool, for example adding features and properties, changing level beads, to personalise its content.
 
 ---
 
