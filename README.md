@@ -14,6 +14,7 @@ The app is three files that must sit **in the same folder**:
 
 | File | Role |
 | --- | --- |
+| `Abacus_6_7.zip` | The download file for the latest version of the Abacus, containing all necessary files including the 'lite' version
 | `abacus-…_V6_7.html` **or** `abacus-…_V7L.html` | The app itself (pick one — see [Which version](#which-version)) |
 | `properties.js` | Property definitions: names, groups, level labels, neutral/letter types |
 | `features.js` | Feature data: materials, semi-processed products, furniture |
@@ -47,14 +48,18 @@ requirement.
 
 ## Which version
 
+The main version, currently V6.7, is an interactive tool, designed to be pleasant to use on an average computer screen and making use of animations. A parallel version was created, currently V7L, that has no animations, making the .html lighter, but with a higher resolution for static exports of the diagram. Beside animations, the "lite version" retains other interactive functions.
+
 | | **V6.7** (`…_V6_7.html`) | **V7L** (`…_V7L.html`) |
 | --- | --- | --- |
 | Canvas | 1800 × 1800 | 3000 × 3000 (geometry scaled ×5/3) |
-| Intro animation | Yes (headline feature) | **Removed** |
+| Animations | Yes  | **Removed** |
+| Highlight functions | Yes | Yes |
+| Personalise content | Possible | Possible |
 | Use it for | Interactive on-screen use | Large-format / high-res export, printing |
 
 Use **V6.7** for normal interactive use. Use **V7L** when you need a large, static,
-high-resolution version and don't want the animation.
+high-resolution version and don't want the animations.
 
 ---
 
