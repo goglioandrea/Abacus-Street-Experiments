@@ -6,6 +6,8 @@ Where radial lines, corresponding to features, intersect concentric lines, corre
 The tool is an offline application, it runs entirely offline from local files that can be downloaded.
 The UI allows to make local modifications to the tool, for example adding features and properties, changing level beads, to personalise its content.
 
+The Abacus tool was created in 2026 as part of the Master's graduation project "A Design Toolkit for Facilitating Tactical Interventions in Schoolyards and Streets" by Andrea Goglio at TU Delft (Faculty of Industrial Design Engineering), supervised by Achilleas Psyllidis and Mert Akay. It is covered by GPL 3.0 license, to prevent commercial use.
+
 ---
 
 ## Contents
