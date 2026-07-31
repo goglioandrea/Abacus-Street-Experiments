@@ -16,7 +16,7 @@ The app is three files that must sit **in the same folder**:
 
 | File | Role |
 | --- | --- |
-| `Abacus_6_7.zip` | The download file for the latest version of the Abacus, containing all necessary files including the 'lite' version
+| `Abacus_LATEST.zip` | The download file for the latest version of the Abacus, containing all necessary files including the 'lite' version
 | `abacus-…_V6_7.html` **or** `abacus-…_V7L.html` | The app itself (pick one — see [Which version](#which-version)) |
 | `properties.js` | Property definitions: names, groups, level labels, neutral/letter types |
 | `features.js` | Feature data: materials, semi-processed products, furniture |
