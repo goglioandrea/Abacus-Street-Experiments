@@ -3,7 +3,8 @@
 The Abacus is a digital design tool, that was created to facilitate the selection of materials to use in tactical urban interventions, such as street experiments. In it are collected common physical features that can be deployed in urban design, subdivided in three classes: materials, semi-processed products and furniture pieces.
 The diagram also presents properties that characterise the features and determine their suitability for specific design needs.
 Where radial lines, corresponding to features, intersect concentric lines, corresponding to properties, there are "beads" that represent the level to which a property relates to the feature.
-The tool is an offline application, it runs entirely offline from local files that can be downloaded.
+**Try it online:** https://goglioandrea.github.io/Abacus-Street-Experiments/ (no download needed; edits are saved only in your browser).
+The tool can also run entirely offline from local files that can be downloaded.
 The UI allows to make local modifications to the tool, for example adding features and properties, changing level beads, to personalise its content.
 
 The Abacus tool was created in 2026 as part of the Master's graduation project "A Design Toolkit for Facilitating Tactical Interventions in Schoolyards and Streets" by Andrea Goglio at TU Delft (Faculty of Industrial Design Engineering), supervised by Achilleas Psyllidis and Mert Akay. It is covered by GPL 3.0 license, to prevent commercial use.
